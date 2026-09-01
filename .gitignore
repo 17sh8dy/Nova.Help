@@ -141,3 +141,14 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# ── Nova.Help ─────────────────────────────────────────────────────────────────
+# Tickets, accounts and the generated signing key. Never commit: var/secret signs
+# ticket passes and account sessions, and var/accounts/ holds password hashes.
+var/
+
+# Cloudflare local state and secrets.
+#   .dev.vars    local secrets for `wrangler dev`
+#   .wrangler/   local D1, R2 and Durable Object state
+.dev.vars
+.wrangler/

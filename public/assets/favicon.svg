@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Nova.Help">
+  <!--
+    The Nova Nexus mark on the site's badge. One blade, rotated 120 and 240 degrees, scaled so
+    the trefoil's bounding box (142 x 125 units) sits centred in the 32px square with an even
+    5px margin: the translate places the BBOX centre at 16,16, not the rotation origin, which
+    would hang a one-blade-up trefoil visibly low.
+    Colours are literal rather than tokens here - a favicon is fetched without the stylesheet.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0E111A"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" fill="none" stroke="#7C5CFF" stroke-opacity="0.34"/>
+  <g transform="translate(15.85 19.04) scale(0.155)" fill="#7C5CFF">
+    <path d="M -2,-82 C 20,-62 26,-26 8,-8 C 4,-8 1,-9 0,-9 C -4,-11 -18,-40 -2,-82 Z"/>
+    <path d="M -2,-82 C 20,-62 26,-26 8,-8 C 4,-8 1,-9 0,-9 C -4,-11 -18,-40 -2,-82 Z" transform="rotate(120)"/>
+    <path d="M -2,-82 C 20,-62 26,-26 8,-8 C 4,-8 1,-9 0,-9 C -4,-11 -18,-40 -2,-82 Z" transform="rotate(240)"/>
+  </g>
+</svg>

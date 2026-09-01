@@ -1,0 +1,78 @@
+{
+  // Nova.Help on Cloudflare Workers.
+  //
+  // NOT DEPLOYED. This configuration exists so the migration can be run and verified locally
+  // with `wrangler dev`, which uses a real local D1 and a real local R2. There is no route or
+  // custom domain here on purpose: adding one is the deliberate act that puts this on the
+  // internet, and two blockers in server/worker.mjs have to be cleared first.
+  //
+  //   npx wrangler d1 create nova-help          # once, then paste the id below
+  //   npx wrangler d1 execute nova-help --local --file server/store/schema.sql
+  //   npx wrangler d1 execute nova-help --local --file server/accounts/schema.sql
+  //   npx wrangler secret put NOVA_HELP_SECRET  # for a real environment, not for --local
+  //   npx wrangler dev
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nova-help",
+  "main": "server/worker.mjs",
+  "compatibility_date": "2026-08-01",
+
+  // The app is ESM and uses node:crypto, node:buffer and friends throughout.
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": { "enabled": true },
+
+  // public/ is served by the assets binding rather than by lib/static.mjs, which needs a
+  // filesystem. `run_worker_first` keeps the Worker in charge of routing: an asset is answered
+  // only when the path really is one.
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nova-help",
+      // A PLACEHOLDER. `wrangler dev` refuses to start without an id even though it never
+      // reaches the network in local mode, so this stands in until `wrangler d1 create
+      // nova-help` prints the real one. Nothing is deployed until it is replaced.
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "nova-help-attachments"
+    }
+  ],
+
+  // One object per limiter per key, holding a fixed-window counter. NOT the `ratelimits`
+  // binding: its period must be 10 or 60 seconds and every window here is ten minutes to an
+  // hour, it returns only `{ success }` so there is no Retry-After to report, and it cannot
+  // reset a key, which is what a correct password does here. See server/rateLimiterObject.mjs.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiterObject"
+      }
+    ]
+  },
+
+  // SQLite-backed classes, which is the only option for new namespaces.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RateLimiterObject"]
+    }
+  ],
+
+  "vars": {
+    // The public origin, used to build OAuth redirect URIs. Set it for a real deployment.
+    "NOVA_HELP_ORIGIN": "http://localhost:8787"
+  }
+
+  // NOVA_HELP_SECRET, NOVA_GOOGLE_CLIENT_ID and NOVA_GOOGLE_SECRET are secrets, never vars.
+  // For `wrangler dev` they are read from .dev.vars, which is gitignored.
+}

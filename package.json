@@ -1,0 +1,16 @@
+{
+  "name": "@nova/help",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nova.Help — the customer support portal for the Nova ecosystem.",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "dev": "node --watch --env-file-if-exists=.env server/index.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node server/check.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
