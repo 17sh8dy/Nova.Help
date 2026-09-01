@@ -20,7 +20,7 @@ import path from 'node:path';
 
 import { createApp } from '../server/app.mjs';
 import { createD1TicketStore } from '../server/store/d1Store.mjs';
-import { createD1AccountStore } from '../server/accounts/d1Store.mjs';
+import { createD1AccountStore } from '@nova/accounts/d1Store';
 import { createR2AttachmentStore } from '../server/store/r2Attachments.mjs';
 import { createSqliteD1 } from '../server/store/sqliteD1.mjs';
 import { createLocalR2 } from '../server/store/localR2.mjs';

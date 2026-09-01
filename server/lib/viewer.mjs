@@ -22,7 +22,7 @@
  * `current()` is called on nearly every request, so it resolves at most one session and caches
  * the answer on the request object.
  */
-import { SESSION_COOKIE } from '../accounts/index.mjs';
+import { SESSION_COOKIE } from '@nova/accounts';
 import { PASS_COOKIE } from './access.mjs';
 import { clearCookie, cookie, parseCookies } from './http.mjs';
 
@@ -69,10 +69,23 @@ export function createViewer({ accounts, access, config }) {
 
     /** The Set-Cookie that starts a session. */
     sessionCookie: (token, { maxAge }) =>
-      cookie(SESSION_COOKIE, token, { maxAge, secure: config.secureCookies }),
+      cookie(SESSION_COOKIE, token, {
+        maxAge,
+        secure: config.secureCookies,
+        /* Set to the parent domain (`.nova.xyz`) and one sign-in covers every Nova product on
+           it. Unset — the default, and what every deployment does today — the cookie is
+           host-only and each front door keeps its own session against the same account. */
+        domain: config.cookieDomain ?? null,
+      }),
 
-    /** The Set-Cookie that ends one in the browser. The server-side session is revoked too. */
-    clearSessionCookie: () => clearCookie(SESSION_COOKIE, { secure: config.secureCookies }),
+    /**
+     * The Set-Cookie that ends one in the browser. The server-side session is revoked too.
+     *
+     * The Domain must match the one it was set with, or the browser clears a different cookie
+     * and leaves the real one in place — which would look exactly like a sign-out that failed.
+     */
+    clearSessionCookie: () =>
+      clearCookie(SESSION_COOKIE, { secure: config.secureCookies, domain: config.cookieDomain ?? null }),
   };
 }
 

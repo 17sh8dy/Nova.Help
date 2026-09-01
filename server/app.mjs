@@ -17,8 +17,8 @@ import { createTicketService } from './core/tickets.mjs';
 import { createAttachmentStore } from './core/attachments.mjs';
 import { createFileStore } from './store/fileStore.mjs';
 import { createAccess, loadSecret } from './lib/access.mjs';
-import { createAccounts, createLogMailer } from './accounts/index.mjs';
-import { createGoogleProvider } from './accounts/providers/google.mjs';
+import { createAccounts, createLogMailer } from '@nova/accounts';
+import { createGoogleProvider } from '@nova/accounts/providers/google';
 import { createViewer } from './lib/viewer.mjs';
 import { createRateLimiter } from './lib/rateLimit.mjs';
 import { createRouter } from './lib/router.mjs';
@@ -103,6 +103,17 @@ export async function createApp({
    * boot rather than discovered later. See server/accounts/mail.mjs.
    */
   mailer = null,
+  /**
+   * The Domain to scope the session cookie to, e.g. `.nova.xyz`.
+   *
+   * This is the whole of single-sign-on across the Nova ecosystem: with every product on one
+   * registrable domain, a session opened at nova.xyz is presented to help.nova.xyz too, and
+   * one Nova Account means one sign-in. Unset — the default — the cookie is host-only and
+   * each front door keeps its own session against the same shared account.
+   *
+   * It cannot bridge nova.help and nova.xyz: a browser refuses a Domain its host is not under.
+   */
+  cookieDomain = null,
 } = {}) {
   // A broken catalog must stop the process, not produce a portal with missing categories.
   assertValid();
@@ -198,7 +209,7 @@ export async function createApp({
     oauth: limiter('oauth', 15 * 60 * 1000, 30),
   };
 
-  const config = { dev, trustProxy, secureCookies, origin };
+  const config = { dev, trustProxy, secureCookies, origin, cookieDomain };
   const viewer = createViewer({ accounts, access, config });
   const ctx = { tickets, attachments, store, access, accounts, viewer, limiters, config, logger };
 

@@ -28,8 +28,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createAccounts } from '../server/accounts/index.mjs';
-import { createD1AccountStore } from '../server/accounts/d1Store.mjs';
+import { createAccounts } from '@nova/accounts';
+import { createD1AccountStore } from '@nova/accounts/d1Store';
 import { createSqliteD1 } from '../server/store/sqliteD1.mjs';
 import { applyAccountSchema } from '../server/store/migrate.mjs';
 

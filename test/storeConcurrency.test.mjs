@@ -18,7 +18,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createAccountStore } from '../server/accounts/store.mjs';
+import { createAccountStore } from '@nova/accounts/store';
 import { createFileStore } from '../server/store/fileStore.mjs';
 
 async function accountStore(t) {

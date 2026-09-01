@@ -15,12 +15,12 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createAccounts, deriveSessionSecret, publicView, DEFAULT_COST } from '../server/accounts/index.mjs';
-import { hashPassword, needsRehash, verifyPassword } from '../server/accounts/passwords.mjs';
-import { isAccountId, newAccountId } from '../server/accounts/ids.mjs';
-import { createSessionTokens } from '../server/accounts/sessions.mjs';
-import { createAccountStore } from '../server/accounts/store.mjs';
-import { validateRegistration, validateSignIn, normalizeEmail } from '../server/accounts/validation.mjs';
+import { createAccounts, deriveSessionSecret, publicView, DEFAULT_COST } from '@nova/accounts';
+import { hashPassword, needsRehash, verifyPassword } from '@nova/accounts/passwords.mjs';
+import { isAccountId, newAccountId } from '@nova/accounts/ids.mjs';
+import { createSessionTokens } from '@nova/accounts/sessions.mjs';
+import { createAccountStore } from '@nova/accounts/store';
+import { validateRegistration, validateSignIn, normalizeEmail } from '@nova/accounts/validation.mjs';
 
 /** Cheap enough to run hundreds of times; the shape of the record is identical. */
 const CHEAP = { N: 1024, r: 8, p: 1 };

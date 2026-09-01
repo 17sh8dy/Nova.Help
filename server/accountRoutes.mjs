@@ -26,7 +26,7 @@
  *    state envelope at the start and re-checked at the end, so a flow begun as a sign-in
  *    cannot come back as a link against an account that appeared in between.
  */
-import { OAUTH_COOKIE, OAUTH_TTL_SECONDS } from './accounts/index.mjs';
+import { OAUTH_COOKIE, OAUTH_TTL_SECONDS } from '@nova/accounts';
 import { summarize } from './core/tickets.mjs';
 import { parseBody } from './lib/body.mjs';
 import { clearCookie, clientIp, cookie, parseCookies, redirect, sendHtml, withCookie } from './lib/http.mjs';

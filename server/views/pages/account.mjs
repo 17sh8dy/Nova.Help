@@ -19,7 +19,7 @@
  *    sentence is the whole difference between an account being a convenience and an account
  *    being a gate.
  */
-import { ACCOUNT_LIMITS } from '../../accounts/index.mjs';
+import { ACCOUNT_LIMITS } from '@nova/accounts';
 import { getStatus } from '../../core/catalog.mjs';
 import { page, hero } from '../layout.mjs';
 import { badge, button, esc, escUrl, icon, notice, textField } from '../components.mjs';

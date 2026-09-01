@@ -796,7 +796,7 @@ test('a second provider drops in without Nova Accounts changing', async (t) => {
   /* Standing up a whole second provider through the generic OIDC client is the test: if
      adding Apple or Discord needed a change to the account model, the store or the service,
      this would not compile, let alone pass. */
-  const { createOidcProvider } = await import('../server/accounts/providers/oidc.mjs');
+  const { createOidcProvider } = await import('@nova/accounts/providers/oidc');
   const acme = await startFakeProvider({ clientId: 'acme-client', clientSecret: 'acme-secret' });
   const dir = await mkdtemp(path.join(tmpdir(), 'novahelp-acme-'));
 

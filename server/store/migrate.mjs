@@ -7,9 +7,9 @@
  * in the loop at all. Both schemas are `CREATE TABLE IF NOT EXISTS`, so applying them to a
  * database that already has them is a no-op rather than an error.
  *
- * The account schema is deliberately reachable from here too, but it LIVES under
- * server/accounts/ and is only read from there. Nothing in this file may be imported by
- * anything under server/accounts/ -- see the rule at the top of accounts/index.mjs.
+ * The account schema is deliberately reachable from here too, but it BELONGS to the
+ * @nova/accounts package and travels with it. Nothing in this file may be imported by that
+ * package -- see the rule at the top of its index.mjs.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -25,9 +25,13 @@ export async function applyTicketSchema(db) {
   await db.exec(await read(path.join(here, 'schema.sql')));
 }
 
-/** The accounts, sessions and identities tables. */
+/** The accounts, sessions, identities and password-reset tables. */
 export async function applyAccountSchema(db) {
-  await db.exec(await read(path.join(repoRoot, 'server', 'accounts', 'schema.sql')));
+  /* Resolved through the package rather than by path: Nova Accounts is a workspace package
+     now, shared with the Nova site, and its schema travels with it. A hard-coded path here
+     would break the moment the package moved or was consumed from somewhere else. */
+  const { fileURLToPath } = await import('node:url');
+  await db.exec(await read(fileURLToPath(import.meta.resolve('@nova/accounts/schema.sql'))));
 }
 
 /** Everything Nova.Help needs in one database. */

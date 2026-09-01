@@ -9,7 +9,7 @@
 import { site } from '../../../data/site.js';
 import { ATTACHMENT_LIMITS, humanSize } from '../../core/attachments.mjs';
 import { PASS_TTL_SECONDS } from '../../lib/access.mjs';
-import { SESSION_TTL_SECONDS } from '../../accounts/index.mjs';
+import { SESSION_TTL_SECONDS } from '@nova/accounts';
 import { page, hero } from '../layout.mjs';
 import { esc, icon } from '../components.mjs';
 

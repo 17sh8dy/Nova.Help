@@ -21,8 +21,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { createApp } from '../server/app.mjs';
-import { createMemoryMailer } from '../server/accounts/index.mjs';
-import { createD1AccountStore } from '../server/accounts/d1Store.mjs';
+import { createMemoryMailer } from '@nova/accounts';
+import { createD1AccountStore } from '@nova/accounts/d1Store';
 import { createD1TicketStore } from '../server/store/d1Store.mjs';
 import { createSqliteD1 } from '../server/store/sqliteD1.mjs';
 import { applySchema } from '../server/store/migrate.mjs';

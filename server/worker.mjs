@@ -38,7 +38,7 @@
  */
 import { createApp } from './app.mjs';
 import { createD1TicketStore } from './store/d1Store.mjs';
-import { createD1AccountStore } from './accounts/d1Store.mjs';
+import { createD1AccountStore } from '@nova/accounts/d1Store';
 import { createR2AttachmentStore } from './store/r2Attachments.mjs';
 import { createDurableRateLimiter } from './lib/doRateLimit.mjs';
 

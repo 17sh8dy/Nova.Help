@@ -10,8 +10,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createAccountStore } from '../server/accounts/store.mjs';
-import { createD1AccountStore } from '../server/accounts/d1Store.mjs';
+import { createAccountStore } from '@nova/accounts/store';
+import { createD1AccountStore } from '@nova/accounts/d1Store';
 import { createSqliteD1 } from '../server/store/sqliteD1.mjs';
 import { applyAccountSchema } from '../server/store/migrate.mjs';
 import { anAccount, anIdentity, describeAccountStore } from './helpers/accountStoreContract.mjs';
@@ -190,9 +190,18 @@ test('[d1Store] deleting an account takes its sessions, identities and products 
   }
 });
 
-test('[d1Store] nothing under accounts/ imports from outside it', async () => {
+test('[package] @nova/accounts depends on nothing but the Node runtime', async () => {
+  /* THE RULE THAT MAKES THIS PACKAGE SHARED RATHER THAN COPIED. Nova Accounts is now consumed
+     by two front doors — Nova.Help and the Nova site — so "it must not reach outside itself"
+     stopped being a convention about a directory and became the thing that lets one
+     implementation serve both. A relative import escaping the package would break the Nova
+     site's build; a bare dependency would have to be installed by every consumer.
+
+     So this checks both: no relative import may leave the package, and the only bare
+     specifiers allowed are node: builtins. */
   const { readFile, readdir } = await import('node:fs/promises');
-  const root = path.resolve('server', 'accounts');
+  const { fileURLToPath } = await import('node:url');
+  const root = path.dirname(fileURLToPath(import.meta.resolve('@nova/accounts')));
 
   const walk = async (dir) => {
     const out = [];
@@ -204,15 +213,24 @@ test('[d1Store] nothing under accounts/ imports from outside it', async () => {
     return out;
   };
 
-  for (const file of await walk(root)) {
+  const files = await walk(root);
+  assert.ok(files.length >= 10, `expected the package to have been found, saw ${files.length} files`);
+
+  for (const file of files) {
     const source = await readFile(file, 'utf8');
     for (const [, specifier] of source.matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)) {
-      const local = specifier.startsWith('.');
-      const escapes = local && !path.resolve(path.dirname(file), specifier).startsWith(root);
-      assert.equal(
-        escapes,
-        false,
-        `${path.relative(root, file)} imports "${specifier}" from outside server/accounts/ — see the rule in accounts/index.mjs`,
+      const where = path.relative(root, file);
+
+      if (specifier.startsWith('.')) {
+        const escapes = !path.resolve(path.dirname(file), specifier).startsWith(root);
+        assert.equal(escapes, false, `${where} imports "${specifier}" from outside the package`);
+        continue;
+      }
+
+      assert.ok(
+        specifier.startsWith('node:'),
+        `${where} imports "${specifier}" — @nova/accounts must have no dependencies, so every ` +
+          'consumer can take it as it is. See the rule at the top of its index.mjs.',
       );
     }
   }

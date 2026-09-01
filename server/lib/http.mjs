@@ -91,13 +91,22 @@ export function parseCookies(req) {
  * `secure` is off when the server is running over plain HTTP in development, because a Secure
  * cookie is silently dropped there and the ticket page would appear to forget you instantly.
  */
-export function cookie(name, value, { maxAge, secure = false, path = '/' } = {}) {
+export function cookie(name, value, { maxAge, secure = false, path = '/', domain = null } = {}) {
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
     `Path=${path}`,
     'HttpOnly',
     'SameSite=Lax',
   ];
+  /* `domain` is what makes one Nova Account session work across the whole ecosystem. Set to
+     `.nova.xyz`, a session opened on the main site is also presented to help.nova.xyz, so
+     signing in once signs you in everywhere — no second protocol, no redirect dance.
+
+     IT ONLY WORKS WITHIN ONE REGISTRABLE DOMAIN. A cookie cannot be shared between nova.xyz
+     and nova.help; browsers refuse a Domain the response's host does not fall under, and would
+     drop it silently. Left unset the cookie stays host-only, which is what every deployment
+     does until the ecosystem is on one domain — so this changes nothing until it is set. */
+  if (domain) parts.push(`Domain=${domain}`);
   if (secure) parts.push('Secure');
   if (maxAge != null) parts.push(`Max-Age=${Math.floor(maxAge)}`);
   return parts.join('; ');

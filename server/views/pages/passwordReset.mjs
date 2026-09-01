@@ -14,7 +14,7 @@
  * so BEFORE they choose a password and type it twice, not after. `resetPasswordPage` therefore
  * renders either a form or an explanation, and the explanation always offers the way back.
  */
-import { ACCOUNT_LIMITS } from '../../accounts/index.mjs';
+import { ACCOUNT_LIMITS } from '@nova/accounts';
 import { page, hero } from '../layout.mjs';
 import { button, esc, icon, notice, textField } from '../components.mjs';
 

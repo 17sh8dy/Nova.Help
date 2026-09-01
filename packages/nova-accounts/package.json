@@ -1,0 +1,30 @@
+{
+  "name": "@nova/accounts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nova Accounts \u2014 the identity system for the Nova ecosystem. One account across every Nova product.",
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./store": "./store.mjs",
+    "./d1Store": "./d1Store.mjs",
+    "./schema.sql": "./schema.sql",
+    "./providers/google": "./providers/google.mjs",
+    "./providers/oidc": "./providers/oidc.mjs",
+    "./passwords.mjs": "./passwords.mjs",
+    "./ids.mjs": "./ids.mjs",
+    "./sessions.mjs": "./sessions.mjs",
+    "./validation.mjs": "./validation.mjs",
+    "./service.mjs": "./service.mjs",
+    "./mail.mjs": "./mail.mjs",
+    "./resetTokens.mjs": "./resetTokens.mjs"
+  },
+  "files": [
+    "*.mjs",
+    "providers/*.mjs",
+    "schema.sql"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
