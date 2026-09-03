@@ -50,6 +50,17 @@
     }
   ],
 
+  // PREPARED, NOT ACTIVE. This is config only — it takes effect on the next `wrangler deploy`,
+  // and that deploy will itself FAIL on this step until nova.help exists as a Cloudflare zone
+  // (Workers Custom Domains require "an active Cloudflare zone" — there are zero zones on this
+  // account as of 2026-09-03). Onboard the domain to Cloudflare first, then deploy.
+  "routes": [
+    {
+      "pattern": "nova.help",
+      "custom_domain": true
+    }
+  ],
+
   // One object per limiter per key, holding a fixed-window counter. NOT the `ratelimits`
   // binding: its period must be 10 or 60 seconds and every window here is ten minutes to an
   // hour, it returns only `{ success }` so there is no Retry-After to report, and it cannot
@@ -72,7 +83,9 @@
   ],
 
   "vars": {
-    // The public origin, used to build OAuth redirect URIs. Set it for a real deployment.
+    // The public origin, used to build OAuth redirect URIs. Left at the dev value on purpose —
+    // this repo has one environment, so flipping it here would break `wrangler dev`'s own OAuth
+    // redirects. Change this to "https://nova.help" as part of the deploy itself, not before.
     "NOVA_HELP_ORIGIN": "http://localhost:8787"
   }
 
