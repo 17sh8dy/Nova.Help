@@ -46,6 +46,9 @@ import { createNullMailer } from './mail.mjs';
 import { DEFAULT_COST } from './passwords.mjs';
 import { ACCOUNT_LIMITS, normalizeEmail } from './validation.mjs';
 import { createProviderRegistry, OAUTH_COOKIE, OAUTH_TTL_SECONDS } from './providers/index.mjs';
+import { createProductTokens, deriveProductSecret, PRODUCT_TOKEN_TTL_SECONDS } from './productTokens.mjs';
+import { createDeviceService, scopedView } from './deviceService.mjs';
+import { createSyncService } from './syncDocuments.mjs';
 
 export { SESSION_COOKIE, SESSION_TTL_SECONDS, ACCOUNT_LIMITS, DEFAULT_COST, publicView, normalizeEmail };
 export { RESET_TTL_SECONDS };
@@ -54,9 +57,24 @@ export { OAUTH_COOKIE, OAUTH_TTL_SECONDS };
 export { createGoogleProvider } from './providers/google.mjs';
 export { createOidcProvider } from './providers/oidc.mjs';
 
+/* The ecosystem seam, exported so a front door can render the product list, and a product can
+   ask what it is allowed, without either one restating the registry. */
+export { PRODUCTS, SCOPES, IMPLIED_SCOPES, getProduct, isProduct, grantableScopes } from './products.mjs';
+export { bearerToken, PRODUCT_TOKEN_TTL_SECONDS } from './productTokens.mjs';
+export {
+  DEVICE_CODE_TTL_SECONDS,
+  DEVICE_POLL_INTERVAL_SECONDS,
+  isUserCode,
+  normalizeUserCode,
+} from './deviceCodes.mjs';
+export { scopedView };
+export { SYNC_DOCUMENT_LIMIT, encodeSyncDocument, decodeSyncDocument } from './syncDocuments.mjs';
+
 /** Derive the account-session key from the application secret. Domain-separated, one-way. */
 export const deriveSessionSecret = (secret) =>
   createHmac('sha256', String(secret)).update('nova.accounts.session.v1').digest('hex');
+
+export { deriveProductSecret };
 
 /**
  * Build the account service over a data directory.
@@ -96,6 +114,16 @@ export async function createAccounts({
    * database it has; this module only needs a store.
    */
   store: injectedStore = null,
+  /**
+   * How long a product token lives, and where a person is sent to approve one.
+   *
+   * `verificationUri` is INJECTED because Nova Accounts does not know which host it is being
+   * served from — the same reason `mailer` and `store` are. Left null, the device flow still
+   * works and simply cannot tell the app where to send somebody, which is a client-side
+   * inconvenience rather than a security question.
+   */
+  productTokenTtlSeconds = PRODUCT_TOKEN_TTL_SECONDS,
+  deviceVerificationUri = null,
 } = {}) {
   const store = injectedStore ?? createAccountStore({ dir });
   const loaded = await store.init();
@@ -116,13 +144,35 @@ export async function createAccounts({
   });
   const registry = createProviderRegistry({ providers, secret });
 
+  /* A THIRD derived key, alongside the session key and the OAuth state key. A product token
+     and a web session are therefore different strings even for the same account and session
+     shape, which is what stops one being replayed as the other. See productTokens.mjs. */
+  const productTokens = createProductTokens({
+    secret: deriveProductSecret(secret),
+    ttlSeconds: productTokenTtlSeconds,
+  });
+
+  const devices = createDeviceService({
+    store,
+    productTokens,
+    verificationUri: deviceVerificationUri,
+    logger,
+  });
+
+  const sync = createSyncService({ store });
+
   return {
     ...service,
+    ...devices,
+    ...sync,
     store,
     tokens,
+    productTokens,
     resetTokens,
     mailer: transport,
     providers: registry,
+    devices,
+    sync,
     loaded,
     ttlSeconds,
     resetTtlSeconds,

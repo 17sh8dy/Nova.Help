@@ -52,9 +52,25 @@ CREATE TABLE IF NOT EXISTS account_sessions (
   id          TEXT NOT NULL,
   created_at  TEXT NOT NULL,
   expires_at  TEXT NOT NULL,
-  -- Which Nova product opened it. Recorded so a future "signed in on" list can be honest;
-  -- nothing branches on it.
+  -- Which Nova product opened it. For a device session this is load-bearing: the product
+  -- token names a product, and resolveProductToken refuses a token whose product does not
+  -- match the row -- so a token minted for Open Cut cannot be presented as Atlas's.
   product     TEXT,
+
+  -- 'web' for a browser cookie, 'device' for a product token held by an installed app.
+  -- DEFAULT 'web' is what lets every session written before the device grant existed keep
+  -- meaning exactly what it meant: resolveProductToken refuses anything that is not 'device'.
+  kind        TEXT NOT NULL DEFAULT 'web',
+
+  -- Space-separated, and the AUTHORITY on what this session may do. The token carries a copy
+  -- so a scope check costs no I/O; the two are intersected on every request and the narrower
+  -- wins, which is what makes a scope removed here take effect immediately. NULL for 'web',
+  -- whose reach is decided by the route rather than by a grant.
+  scopes      TEXT,
+
+  -- What the person will see in "signed in on" -- a machine name the app offered. Shown to
+  -- its owner and nobody else, and never trusted for anything.
+  label       TEXT,
 
   PRIMARY KEY (account_id, id)
 );
@@ -105,6 +121,70 @@ CREATE TABLE IF NOT EXISTS account_products (
   account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   product       TEXT NOT NULL,
   first_seen_at TEXT NOT NULL,
+
+  PRIMARY KEY (account_id, product)
+);
+
+-- A device authorization in flight: RFC 8628, for the Nova products that are installed
+-- rather than visited. See deviceService.mjs for why that is the flow.
+--
+-- THIS TABLE IS SHORT-LIVED BY CONSTRUCTION. A row lives ten minutes and authorises one
+-- sign-in; what survives is the session it produces, over in account_sessions. The JSON store
+-- keeps the equivalent in memory for exactly that reason -- a Worker has no memory between
+-- requests, which is the whole reason this is a table and that is a Map.
+--
+-- WHAT IS STORED IS A DIGEST OF THE DEVICE CODE, never the code. A copy of this table must not
+-- be a set of sign-ins somebody can complete, for the same reason account_password_resets
+-- holds a digest. The USER code is stored in the clear because it is a lookup key: it is what
+-- a person types, and no digest can be typed into.
+CREATE TABLE IF NOT EXISTS device_authorizations (
+  id               TEXT PRIMARY KEY,
+
+  -- sha256 of the secret half. UNIQUE so that redemption can be a single guarded UPDATE
+  -- rather than a read followed by a write two pollers can interleave into.
+  device_code_hash TEXT NOT NULL UNIQUE,
+  -- The eight characters a person reads off one screen and types into another, normalized.
+  -- UNIQUE, so two live grants can never share one and be approved into each other.
+  user_code        TEXT NOT NULL UNIQUE,
+
+  product          TEXT NOT NULL,
+  scopes           TEXT NOT NULL,
+  device_name      TEXT,
+
+  -- 'pending' -> 'approved' | 'denied'. A row is DELETED when it is spent, which is what
+  -- makes a grant single-use; there is no 'redeemed' state to be found lying around.
+  status           TEXT NOT NULL DEFAULT 'pending',
+  -- Written only by an approval, and only from the approving request's own session.
+  account_id       TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+
+  created_at       TEXT NOT NULL,
+  expires_at       TEXT NOT NULL,
+  decided_at       TEXT,
+  -- Last poll, so a client asking faster than the interval it was given gets `slow_down`.
+  last_polled_at   TEXT
+);
+
+-- Lets the expiry sweep find dead grants without scanning the table.
+CREATE INDEX IF NOT EXISTS device_authorizations_by_expiry ON device_authorizations (expires_at);
+
+-- What a product has saved for an account: one JSON blob per (account, product).
+--
+-- NOVA ACCOUNTS DOES NOT KNOW WHAT IS IN IT, and that is the point -- the moment this table
+-- has a column for a saved place, every product's schema becomes an identity-service
+-- migration. It is a document, a version and a date.
+--
+-- `version` IS THE ONLY THING PROTECTING SOMEBODY'S LOCAL DATA. A write names the version it
+-- was based on and lands only if that is still current, so a freshly installed client with an
+-- empty document cannot flatten a year of settings by pushing first. See syncDocuments.mjs.
+CREATE TABLE IF NOT EXISTS account_sync_documents (
+  account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  -- A registered product id. One document each: Open Cut cannot read Atlas's, because the
+  -- product half of the key comes from the TOKEN and never from the request body.
+  product     TEXT NOT NULL,
+
+  version     INTEGER NOT NULL DEFAULT 1,
+  document    TEXT    NOT NULL,
+  updated_at  TEXT    NOT NULL,
 
   PRIMARY KEY (account_id, product)
 );

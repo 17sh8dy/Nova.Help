@@ -47,11 +47,59 @@ import { normalizeEmail } from './validation.mjs';
 
 export function createAccountStore({ dir }) {
   const accountsDir = path.join(dir, 'accounts');
+  /* A SIBLING of accounts/, not a child. `var/accounts/` is one file per account and nothing
+     else — a test asserts exactly that, and it is a useful thing to be able to assert. */
+  const syncDir = path.join(dir, 'account-sync');
   const accounts = new Map(); // id -> account document
   const byEmail = new Map(); // normalized email -> id
   const byIdentity = new Map(); // "provider:subject" -> id
   const locks = new Map(); // key -> promise chain tail
   let ready = null;
+
+  /* Pending device authorizations. In memory only, and short-lived; see the block above
+     createDeviceAuthorization for why that is the right storage for a ten-minute record. */
+  const deviceGrants = new Map(); // grant id -> record
+  const deviceByUserCode = new Map(); // normalized user code -> grant id
+  const deviceByCodeHash = new Map(); // sha256(device code) -> grant id
+
+  /* What each account has saved, per product: accountId -> { [product]: { version, document,
+     updatedAt } }. Loaded at boot alongside the accounts, for the same reason they are. */
+  const syncDocuments = new Map();
+
+  const syncFileFor = (accountId) => path.join(syncDir, `${accountId}.json`);
+
+  /** The same atomic rename `persist` uses, for the sync file. An empty set removes the file. */
+  async function persistSync(accountId, documents) {
+    const target = syncFileFor(accountId);
+    if (!Object.keys(documents).length) {
+      await unlink(target).catch(() => {});
+      return;
+    }
+    const temp = `${target}.${randomUUID()}.tmp`;
+    await writeFile(temp, JSON.stringify(documents, null, 2), { encoding: 'utf8', mode: 0o600 });
+    try {
+      await rename(temp, target);
+    } catch (error) {
+      await unlink(temp).catch(() => {});
+      throw error;
+    }
+  }
+
+  /** Drop a grant from all three structures. Used on redemption, denial and expiry. */
+  function forgetDeviceGrant(grant) {
+    deviceGrants.delete(grant.id);
+    deviceByUserCode.delete(grant.userCode);
+    deviceByCodeHash.delete(grant.deviceCodeHash);
+  }
+
+  /* Called at the top of every device method rather than on a timer: the map only grows when
+     somebody starts a sign-in, so the moment work arrives is exactly the moment to tidy. A
+     timer would keep a process alive for a table that is usually empty. */
+  function sweepDeviceGrants(now = Date.now()) {
+    for (const grant of [...deviceGrants.values()]) {
+      if (new Date(grant.expiresAt).getTime() <= now) forgetDeviceGrant(grant);
+    }
+  }
 
   const fileFor = (id) => path.join(accountsDir, `${id}.json`);
 
@@ -129,6 +177,20 @@ export function createAccountStore({ dir }) {
 
   async function load() {
     await mkdir(accountsDir, { recursive: true, mode: 0o700 });
+    await mkdir(syncDir, { recursive: true, mode: 0o700 });
+
+    for (const entry of await readdir(syncDir)) {
+      if (!entry.endsWith('.json')) continue;
+      try {
+        const held = JSON.parse(await readFile(path.join(syncDir, entry), 'utf8'));
+        if (held && typeof held === 'object') syncDocuments.set(entry.replace(/\.json$/, ''), held);
+      } catch {
+        /* An unreadable sync file reads as "nothing synced yet", which is a state every client
+           already handles. It stays on disk; losing somebody's preferences is bad, and
+           refusing to start the portal over them is worse. */
+      }
+    }
+
     const entries = await readdir(accountsDir);
     let broken = 0;
     for (const entry of entries) {
@@ -455,6 +517,188 @@ export function createAccountStore({ dir }) {
 
         await persist(next);
         index(next);
+        return { ok: true };
+      });
+    },
+
+    /* ── Device authorizations ──────────────────────────────────────────────────────────
+     *
+     * HELD IN MEMORY, NOT ON DISK, and that is a decision rather than an omission.
+     *
+     * A pending grant lives for ten minutes and authorises one sign-in. Persisting it would
+     * buy the ability to survive a restart in the middle of somebody typing eight characters,
+     * at the cost of a load path, a broken-file path and a sweep — for a record whose correct
+     * behaviour on restart is "ask again". Everything durable about the outcome (the session,
+     * the product) is written to the account document by the caller, which IS persisted.
+     *
+     * This store is already single-process by construction — its uniqueness indexes are
+     * in-memory Maps rebuilt at boot — so nothing here is more volatile than what surrounds
+     * it. The D1 store, which has no process to hold a Map, uses a table.
+     *
+     * THE TWO INDEXES ARE THE TWO WAYS IN, and they are not equally sensitive: `byUserCode`
+     * is keyed on something a person types, `byDeviceCodeHash` on a digest of 32 random
+     * bytes. Neither key is the record's id, so both are maintained alongside it.
+     */
+
+    /** Record a pending grant. Refuses a user code that a LIVE grant already holds. */
+    async createDeviceAuthorization(record) {
+      return withLock(`device-user-code:${record.userCode}`, async () => {
+        sweepDeviceGrants();
+        if (deviceByUserCode.has(record.userCode)) return { ok: false, reason: 'user-code-taken' };
+
+        const stored = structuredClone(record);
+        deviceGrants.set(stored.id, stored);
+        deviceByUserCode.set(stored.userCode, stored.id);
+        deviceByCodeHash.set(stored.deviceCodeHash, stored.id);
+        return { ok: true };
+      });
+    },
+
+    /**
+     * A grant by the code a person typed, or null.
+     *
+     * A LAPSED GRANT IS STILL RETURNED, and that is the seam doing its job: this file is
+     * storage and the expiry is a fact on the record, not a decision. What to say about it is
+     * policy, and policy lives in deviceService.mjs — which reports "expired" to somebody who
+     * has just typed a code, and reports nothing at all where telling them apart would let the
+     * form be used to find live codes. Sweeping here would take that choice away from it, and
+     * would make this store answer differently from the D1 one, which cannot sweep on read.
+     */
+    async getDeviceAuthorizationByUserCode(userCode) {
+      const id = deviceByUserCode.get(userCode);
+      const found = id ? deviceGrants.get(id) : null;
+      return found ? structuredClone(found) : null;
+    },
+
+    /**
+     * Approve or deny a grant, as ONE operation.
+     *
+     * Atomic for the same reason `redeemPasswordReset` is: two approvals arriving together
+     * must not both land, or a race decides which account a device ends up attached to. Only
+     * a `pending` grant may be decided, so a second click is a no-op rather than a re-approval
+     * onto a different account.
+     */
+    async decideDeviceAuthorization(userCode, { accountId, status, now = new Date() } = {}) {
+      return withLock(`device-user-code:${userCode}`, async () => {
+        const id = deviceByUserCode.get(userCode);
+        const current = id ? deviceGrants.get(id) : null;
+        if (!current) return { ok: false, reason: 'not-found' };
+        /* Checked, not swept: somebody has just typed this code and "it expired, the app will
+           show you a new one" is a better answer than "no such code". Same reason, and same
+           wording, as the D1 store. */
+        if (new Date(current.expiresAt).getTime() <= now.getTime()) return { ok: false, reason: 'expired' };
+        if (current.status !== 'pending') return { ok: false, reason: 'already-decided' };
+
+        current.status = status;
+        current.accountId = status === 'approved' ? accountId : null;
+        current.decidedAt = now.toISOString();
+        return { ok: true, grant: structuredClone(current), product: current.product };
+      });
+    },
+
+    /**
+     * Spend an approved grant and return it, or say why not — as ONE operation.
+     *
+     * The `reason` values are RFC 8628's. `slow_down` is returned to a client polling faster
+     * than the interval it was given, and it does NOT consume the grant; everything else that
+     * succeeds does, permanently, so two polls arriving together cannot both come back with a
+     * token.
+     */
+    async redeemDeviceAuthorization({ deviceCodeHash, minIntervalSeconds = 0, now = new Date() } = {}) {
+      return withLock(`device-code:${deviceCodeHash}`, async () => {
+        sweepDeviceGrants();
+        const id = deviceByCodeHash.get(deviceCodeHash);
+        const current = id ? deviceGrants.get(id) : null;
+        /* A code that never existed and one that lapsed are the same answer, so polling is not
+           a way to learn which device codes are real. */
+        if (!current) return { ok: false, reason: 'expired_token' };
+        if (new Date(current.expiresAt).getTime() <= now.getTime()) {
+          forgetDeviceGrant(current);
+          return { ok: false, reason: 'expired_token' };
+        }
+
+        if (current.lastPolledAt && minIntervalSeconds > 0) {
+          const since = (now.getTime() - new Date(current.lastPolledAt).getTime()) / 1000;
+          if (since < minIntervalSeconds) return { ok: false, reason: 'slow_down' };
+        }
+        current.lastPolledAt = now.toISOString();
+
+        if (current.status === 'pending') return { ok: false, reason: 'authorization_pending' };
+        if (current.status !== 'approved') {
+          forgetDeviceGrant(current);
+          return { ok: false, reason: 'access_denied' };
+        }
+
+        // Single use: gone whether or not the caller manages to do anything with it.
+        forgetDeviceGrant(current);
+        return { ok: true, grant: structuredClone(current) };
+      });
+    },
+
+    /** How many grants are outstanding. For tests and operational counters; no codes. */
+    async countDeviceAuthorizations() {
+      sweepDeviceGrants();
+      return deviceGrants.size;
+    },
+
+    /* ── Sync documents ─────────────────────────────────────────────────────────────────
+     *
+     * ONE FILE PER ACCOUNT under var/accounts/sync/, holding every product's document for
+     * that account — and deliberately NOT part of the account document itself.
+     *
+     * That separation is the D1 store's shape (a table with its own primary key) reflected
+     * here, and keeping it means `get()` returns the same thing from both stores. Hanging
+     * sync data off the account document instead would have made every account read in the
+     * Worker carry a sixth query and every `update()` diff a second collection — to serve a
+     * feature that two routes use.
+     *
+     * The write path is the same `persist`-and-rename as everything else, so a crash
+     * mid-write leaves the previous document rather than a truncated one.
+     */
+
+    /** This product's stored document, or null. */
+    async getSyncDocument(accountId, product) {
+      const found = syncDocuments.get(accountId)?.[product];
+      return found ? structuredClone(found) : null;
+    },
+
+    /**
+     * Store a document if `baseVersion` is still current, as ONE operation.
+     *
+     * The comparison happens INSIDE the lock, which is what makes "only if you are current"
+     * mean anything — checking outside and writing after is exactly the read-modify-write that
+     * loses one of two concurrent edits, which is the thing this whole API exists to prevent.
+     *
+     * `baseVersion: 0` means "I have never synced" and succeeds ONLY against a product with
+     * nothing stored — never as a wildcard, or a fresh install would be a way to erase an
+     * existing document by claiming ignorance of it.
+     */
+    async putSyncDocument(accountId, product, { baseVersion, document, now = new Date() } = {}) {
+      return withLock(`sync:${accountId}`, async () => {
+        if (!accounts.has(accountId)) return { ok: false, reason: 'no-such-account' };
+
+        const held = syncDocuments.get(accountId) ?? {};
+        const version = held[product]?.version ?? 0;
+        if (version !== baseVersion) return { ok: false, reason: 'conflict' };
+
+        const updatedAt = now.toISOString();
+        const next = { ...held, [product]: { version: version + 1, document, updatedAt } };
+        await persistSync(accountId, next);
+        syncDocuments.set(accountId, next);
+        return { ok: true, version: version + 1, updatedAt };
+      });
+    },
+
+    /** Drop this product's document. Never called by sign-out; see syncDocuments.mjs. */
+    async deleteSyncDocument(accountId, product) {
+      return withLock(`sync:${accountId}`, async () => {
+        const held = syncDocuments.get(accountId);
+        if (!held?.[product]) return { ok: false, reason: 'nothing-stored' };
+
+        const next = { ...held };
+        delete next[product];
+        await persistSync(accountId, next);
+        syncDocuments.set(accountId, next);
         return { ok: true };
       });
     },

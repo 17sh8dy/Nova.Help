@@ -53,6 +53,11 @@ const paths = {
   user: '<circle cx="12" cy="8.5" r="3.75"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
   logout: '<path d="M15 8V5.5a1.5 1.5 0 0 0-1.5-1.5h-7A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20h7a1.5 1.5 0 0 0 1.5-1.5V16"/><path d="M11 12h9.5M17.5 8.5 21 12l-3.5 3.5"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.6 7 8.4 5.9L20.4 7"/>',
+  /* Discord's mark, redrawn as a stroked outline so it takes `currentColor` like every other
+     icon here. It is deliberately NOT the official filled logo asset: this set has one visual
+     language, and a third-party image fetched from a CDN would also breach the CSP and tell
+     Discord who is reading the page. */
+  discord: '<path d="M8.6 15.6c-1.4-.4-2.4-1.1-3-2 .3-2.7 1.1-5.1 2.4-7.1a9.7 9.7 0 0 1 2.6-.8l.5 1c1-.1 1.9-.1 2.9 0l.5-1c.9.2 1.8.4 2.6.8 1.3 2 2.1 4.4 2.4 7.1-.6.9-1.6 1.6-3 2l-.9-1.4"/><path d="M8.6 15.6c2.3.7 4.5.7 6.8 0"/><path d="M10 11.5h.01M14 11.5h.01"/>',
 };
 
 export const hasIcon = (name) => Object.hasOwn(paths, name);

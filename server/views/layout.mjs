@@ -19,7 +19,8 @@
  *    request-aware and no template can read an account it was not given.
  */
 import { site, nav, footerLinks } from '../../data/site.js';
-import { esc, icon } from './components.mjs';
+import { community, products as ecosystemProducts } from '../../data/ecosystem.js';
+import { esc, escUrl, icon } from './components.mjs';
 
 /**
  * The Nova Nexus mark.
@@ -94,14 +95,60 @@ function header(currentPath, account) {
   </header>`;
 }
 
+/**
+ * The rest of Nova, in the footer.
+ *
+ * Nova.Help is the one Nova site everybody ends up on — something has gone wrong, so here
+ * they are — which makes its footer the most-read directory of the ecosystem there is. Every
+ * product is listed, and each one links to the place that can actually help with it TODAY:
+ * its section of this site. A product's own website appears as a second link only when
+ * `data/ecosystem.js` says one exists.
+ *
+ * THIS IS WHY EVERY ENTRY LINKS SOMEWHERE REAL rather than being a name waiting for a URL.
+ * A directory of dead ends is worse than no directory, and `/help/<id>` is a page this
+ * deployment serves — so the list is useful before a single product site is built.
+ */
+function ecosystem() {
+  const items = ecosystemProducts
+    .map((product) => {
+      const support = `<a href="/help/${escUrl(product.support)}">${esc(product.name)}</a>`;
+      /* The product's own site, when there is one. `null` renders nothing at all — never a
+         disabled link, never a "coming soon", because a footer is not the place to make
+         promises about somebody else's deployment. */
+      const site_ = product.url
+        ? ` <a class="ecosystem__site" href="${esc(product.url)}" rel="noopener">Website</a>`
+        : '';
+      return `<li class="ecosystem__item">${support}${site_}</li>`;
+    })
+    .join('');
+
+  return `<nav class="ecosystem" aria-labelledby="ecosystem-heading">
+    <h2 class="ecosystem__heading" id="ecosystem-heading">Help with a Nova product</h2>
+    <ul class="ecosystem__list">${items}</ul>
+  </nav>`;
+}
+
 function footer() {
   const links = footerLinks
     .map((item) => `<a href="${esc(item.href)}">${esc(item.label)}</a>`)
     .join('');
+
+  /* The community link. Rendered only when configured, so an unset one hides rather than
+     printing a dead invite — the same rule `site.contactEmail` follows on the homepage. */
+  const discord = community.discord
+    ? `<a class="footer__discord" href="${esc(community.discord)}" rel="noopener">
+        ${icon('discord', { size: 17 })}<span>Join the Nova Discord</span>
+      </a>`
+    : '';
+
   return `<footer class="footer">
-    <div class="wrap footer__inner">
-      <p class="footer__note">${esc(site.name)} — ${esc(site.tagline)}.</p>
-      <nav class="footer__links" aria-label="Footer">${links}</nav>
+    <div class="wrap">
+      ${ecosystem()}
+      <div class="footer__inner">
+        <p class="footer__note">${esc(site.name)} — ${esc(site.tagline)}.</p>
+        <nav class="footer__links" aria-label="Footer">${links}</nav>
+        ${discord}
+      </div>
     </div>
   </footer>`;
 }

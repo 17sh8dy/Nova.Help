@@ -26,6 +26,7 @@ import { createStaticHandler } from './lib/static.mjs';
 import { baseHeaders, sendHtml, sendJson } from './lib/http.mjs';
 import { registerRoutes } from './routes.mjs';
 import { registerAccountRoutes } from './accountRoutes.mjs';
+import { registerDeviceRoutes } from './deviceRoutes.mjs';
 import { registerApi } from './api/index.mjs';
 import { errorPage, notFoundPage } from './views/pages/status.mjs';
 
@@ -175,6 +176,10 @@ export async function createApp({
     supportUrl: origin ? `${origin.replace(/\/+$/, '')}/` : null,
     providers,
     logger,
+    /* Where an app tells somebody to go and approve a code. Left null when no origin is
+       configured, in which case the route computes one from the request's own Host — a
+       development convenience, and harmless: it only ever becomes text on the app's screen. */
+    deviceVerificationUri: origin ? `${origin.replace(/\/+$/, '')}/account/device` : null,
     ...(transport ? { mailer: transport } : {}),
     ...(stores?.accounts ? { store: stores.accounts } : {}),
     ...(passwordCost ? { cost: passwordCost } : {}),
@@ -207,6 +212,20 @@ export async function createApp({
        a courtesy limit rather than a defence; the callback is the one that matters, and it is
        already gated by a state cookie this server had to have set. */
     oauth: limiter('oauth', 15 * 60 * 1000, 30),
+    /* ── The device grant ────────────────────────────────────────────────────────────────
+     * Starting one is cheap and a person restarting a stuck app should not be locked out.
+     * Polling is DELIBERATELY GENEROUS: a grant lives ten minutes and a well-behaved client
+     * asks every five seconds, which is 120 requests — so a limit tight enough to be a
+     * defence would break the ordinary case. The real pacing is per-grant `slow_down` in the
+     * store; this is a flood stop.
+     *
+     * `deviceVerify` is the one that matters. It counts every code TYPED, and a user code is
+     * eight Crockford characters — enough against a person, not much against a script — so
+     * this limiter is the difference between "guessing is hopeless" and "guessing is
+     * plausible". It is deliberately the tightest of the three. */
+    deviceStart: limiter('deviceStart', 15 * 60 * 1000, 20),
+    devicePoll: limiter('devicePoll', 15 * 60 * 1000, 400),
+    deviceVerify: limiter('deviceVerify', 15 * 60 * 1000, 15),
   };
 
   const config = { dev, trustProxy, secureCookies, origin, cookieDomain };
@@ -216,6 +235,7 @@ export async function createApp({
   const router = createRouter();
   registerRoutes(router, ctx);
   registerAccountRoutes(router, ctx);
+  registerDeviceRoutes(router, ctx);
   registerApi(router, ctx);
 
   /* On Cloudflare the assets are served by a binding before a request ever reaches the router,

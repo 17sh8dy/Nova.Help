@@ -766,6 +766,371 @@ export function describeAccountStore(label, makeStore) {
     assert.deepEqual((await store.get('acct_a')).passwordReset, aReset());
   });
 
+  /* ── Device authorizations ──────────────────────────────────────────────────────────────
+   *
+   * The four methods behind the device grant. They are in the CONTRACT rather than in a
+   * D1-only or file-only test because the two implementations could not be less alike — three
+   * in-memory Maps under a lock on one side, a table and guarded statements on the other — and
+   * the only thing that keeps them interchangeable is that they are held to the same
+   * behaviour here.
+   *
+   * The two that carry the security are `decideDeviceAuthorization` (a grant is decided ONCE,
+   * so a race cannot pick which account a device attaches to) and `redeemDeviceAuthorization`
+   * (a grant is spent ONCE, so two pollers cannot both walk away with a token).
+   */
+
+  const aGrant = (overrides = {}) => ({
+    id: `dev_${Math.random().toString(36).slice(2, 10)}`,
+    deviceCodeHash: `hash_${Math.random().toString(36).slice(2, 10)}`,
+    userCode: 'KDMX7QRT',
+    product: 'open-cut',
+    scopes: ['identity', 'sync'],
+    deviceName: 'A laptop',
+    status: 'pending',
+    accountId: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    lastPolledAt: null,
+    ...overrides,
+  });
+
+  test(name('a pending grant is found by the code a person types'), async (t) => {
+    const store = await makeStore(t);
+    const grant = aGrant();
+    assert.equal((await store.createDeviceAuthorization(grant)).ok, true);
+
+    const found = await store.getDeviceAuthorizationByUserCode('KDMX7QRT');
+    assert.equal(found.product, 'open-cut');
+    assert.deepEqual(found.scopes, ['identity', 'sync']);
+    assert.equal(found.status, 'pending');
+    assert.equal(found.deviceName, 'A laptop');
+    assert.equal(found.accountId, null, 'nobody has approved it yet');
+  });
+
+  test(name('two live grants may not share one user code'), async (t) => {
+    const store = await makeStore(t);
+    assert.equal((await store.createDeviceAuthorization(aGrant())).ok, true);
+
+    const second = await store.createDeviceAuthorization(aGrant());
+    assert.equal(second.ok, false);
+    assert.equal(second.reason, 'user-code-taken', 'or they could be approved into each other');
+  });
+
+  test(name('a user code nobody minted is simply not found'), async (t) => {
+    const store = await makeStore(t);
+    assert.equal(await store.getDeviceAuthorizationByUserCode('ZZZZ9999'), null);
+  });
+
+  test(name('a lapsed grant is still READ — expiry is a fact here, not a decision'), async (t) => {
+    const store = await makeStore(t);
+    await store.createDeviceAuthorization(aGrant({ expiresAt: '2020-01-01T00:00:00.000Z' }));
+
+    /* The store hands back what it holds; deviceService.mjs decides whether to say "expired"
+       or to say nothing at all. Sweeping on read would take that choice away from it — and
+       the D1 store cannot sweep on read anyway, so the two would answer differently. */
+    const found = await store.getDeviceAuthorizationByUserCode('KDMX7QRT');
+    assert.equal(found.expiresAt, '2020-01-01T00:00:00.000Z');
+    assert.equal(found.status, 'pending');
+  });
+
+  test(name('approving records the account and the decision'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.createDeviceAuthorization(aGrant());
+
+    const decided = await store.decideDeviceAuthorization('KDMX7QRT', {
+      accountId: 'acct_a',
+      status: 'approved',
+    });
+    assert.equal(decided.ok, true);
+    assert.equal(decided.grant.accountId, 'acct_a');
+    assert.equal(decided.grant.status, 'approved');
+  });
+
+  test(name('a grant is decided ONCE — the second approval changes nothing'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.create(anAccount({ id: 'acct_b' }));
+    await store.createDeviceAuthorization(aGrant());
+
+    assert.equal(
+      (await store.decideDeviceAuthorization('KDMX7QRT', { accountId: 'acct_a', status: 'approved' })).ok,
+      true,
+    );
+    const second = await store.decideDeviceAuthorization('KDMX7QRT', {
+      accountId: 'acct_b',
+      status: 'approved',
+    });
+    assert.equal(second.ok, false);
+    assert.equal(second.reason, 'already-decided');
+
+    const still = await store.getDeviceAuthorizationByUserCode('KDMX7QRT');
+    assert.equal(still.accountId, 'acct_a', 'the first decision is the one that stands');
+  });
+
+  test(name('denying records no account at all'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.createDeviceAuthorization(aGrant());
+
+    const decided = await store.decideDeviceAuthorization('KDMX7QRT', {
+      accountId: 'acct_a',
+      status: 'denied',
+    });
+    assert.equal(decided.ok, true);
+    assert.equal(decided.grant.accountId, null, 'a refusal must not write an account onto it');
+  });
+
+  test(name('a lapsed grant cannot be approved'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.createDeviceAuthorization(aGrant({ expiresAt: '2020-01-01T00:00:00.000Z' }));
+
+    const decided = await store.decideDeviceAuthorization('KDMX7QRT', {
+      accountId: 'acct_a',
+      status: 'approved',
+    });
+    assert.equal(decided.ok, false);
+    assert.equal(decided.reason, 'expired');
+  });
+
+  test(name('polling a pending grant says so and does not spend it'), async (t) => {
+    const store = await makeStore(t);
+    await store.createDeviceAuthorization(aGrant({ deviceCodeHash: 'hash_x' }));
+
+    const result = await store.redeemDeviceAuthorization({ deviceCodeHash: 'hash_x' });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'authorization_pending');
+    assert.ok(await store.getDeviceAuthorizationByUserCode('KDMX7QRT'), 'still there');
+  });
+
+  test(name('an approved grant is redeemed, once'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.createDeviceAuthorization(aGrant({ deviceCodeHash: 'hash_x' }));
+    await store.decideDeviceAuthorization('KDMX7QRT', { accountId: 'acct_a', status: 'approved' });
+
+    const first = await store.redeemDeviceAuthorization({ deviceCodeHash: 'hash_x' });
+    assert.equal(first.ok, true);
+    assert.equal(first.grant.accountId, 'acct_a');
+    assert.deepEqual(first.grant.scopes, ['identity', 'sync']);
+
+    const second = await store.redeemDeviceAuthorization({ deviceCodeHash: 'hash_x' });
+    assert.equal(second.ok, false, 'two devices must not both get a token for one approval');
+    assert.equal(second.reason, 'expired_token');
+  });
+
+  test(name('a denied grant is refused and consumed'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.createDeviceAuthorization(aGrant({ deviceCodeHash: 'hash_x' }));
+    await store.decideDeviceAuthorization('KDMX7QRT', { accountId: 'acct_a', status: 'denied' });
+
+    const result = await store.redeemDeviceAuthorization({ deviceCodeHash: 'hash_x' });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'access_denied');
+    assert.equal(await store.getDeviceAuthorizationByUserCode('KDMX7QRT'), null, 'and gone');
+  });
+
+  test(name('a device code nobody minted is refused exactly like a lapsed one'), async (t) => {
+    const store = await makeStore(t);
+    const unknown = await store.redeemDeviceAuthorization({ deviceCodeHash: 'hash_nope' });
+    assert.equal(unknown.reason, 'expired_token', 'so polling cannot enumerate live codes');
+
+    await store.createDeviceAuthorization(aGrant({ deviceCodeHash: 'hash_old', expiresAt: '2020-01-01T00:00:00.000Z' }));
+    const lapsed = await store.redeemDeviceAuthorization({ deviceCodeHash: 'hash_old' });
+    assert.equal(lapsed.reason, 'expired_token');
+  });
+
+  test(name('polling faster than the interval is told to slow down, and keeps the grant'), async (t) => {
+    const store = await makeStore(t);
+    await store.createDeviceAuthorization(aGrant({ deviceCodeHash: 'hash_x' }));
+
+    const at = (iso) => new Date(iso);
+    const first = await store.redeemDeviceAuthorization({
+      deviceCodeHash: 'hash_x',
+      minIntervalSeconds: 5,
+      now: at('2026-01-01T00:00:10.000Z'),
+    });
+    assert.equal(first.reason, 'authorization_pending', 'the first poll has nothing to compare against');
+
+    const tooSoon = await store.redeemDeviceAuthorization({
+      deviceCodeHash: 'hash_x',
+      minIntervalSeconds: 5,
+      now: at('2026-01-01T00:00:12.000Z'),
+    });
+    assert.equal(tooSoon.reason, 'slow_down');
+
+    const patient = await store.redeemDeviceAuthorization({
+      deviceCodeHash: 'hash_x',
+      minIntervalSeconds: 5,
+      now: at('2026-01-01T00:00:20.000Z'),
+    });
+    assert.equal(patient.reason, 'authorization_pending', 'and the grant survived being scolded');
+  });
+
+  test(name('a lapsed grant is swept rather than left to be counted forever'), async (t) => {
+    const store = await makeStore(t);
+    await store.createDeviceAuthorization(aGrant({ expiresAt: '2020-01-01T00:00:00.000Z' }));
+    await store.createDeviceAuthorization(aGrant({ userCode: 'AAAA1111', deviceCodeHash: 'hash_live' }));
+
+    assert.equal(await store.countDeviceAuthorizations(), 1);
+    assert.equal(
+      (await store.createDeviceAuthorization(aGrant())).ok,
+      true,
+      'and the swept code is free to mint again',
+    );
+  });
+
+  test(name('a device session round-trips with its kind, scopes and label'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.update('acct_a', (doc) => {
+      doc.sessions = [
+        {
+          id: 'sess_device',
+          createdAt: '2026-01-03T00:00:00.000Z',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          product: 'atlas',
+          kind: 'device',
+          scopes: ['identity', 'sync'],
+          label: 'Studio PC',
+        },
+      ];
+      return doc;
+    });
+
+    assert.deepEqual((await store.get('acct_a')).sessions, [
+      {
+        id: 'sess_device',
+        createdAt: '2026-01-03T00:00:00.000Z',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        product: 'atlas',
+        kind: 'device',
+        scopes: ['identity', 'sync'],
+        label: 'Studio PC',
+      },
+    ]);
+  });
+
+  /* ── Sync documents ─────────────────────────────────────────────────────────────────────
+   *
+   * The version check is the only thing standing between a fresh install and somebody's
+   * settings, so it is checked here rather than in either store's own file — the two
+   * implementations share nothing but this contract.
+   */
+
+  const DOC = JSON.stringify({ theme: 'midnight' });
+  const OTHER = JSON.stringify({ theme: 'daylight' });
+
+  test(name('an account that has never synced has nothing stored'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    assert.equal(await store.getSyncDocument('acct_a', 'open-cut'), null);
+  });
+
+  test(name('a first write lands at version 1 and reads back'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+
+    const written = await store.putSyncDocument('acct_a', 'open-cut', {
+      baseVersion: 0,
+      document: DOC,
+      now: new Date('2026-02-01T00:00:00.000Z'),
+    });
+    assert.deepEqual(written, { ok: true, version: 1, updatedAt: '2026-02-01T00:00:00.000Z' });
+
+    assert.deepEqual(await store.getSyncDocument('acct_a', 'open-cut'), {
+      version: 1,
+      document: DOC,
+      updatedAt: '2026-02-01T00:00:00.000Z',
+    });
+  });
+
+  test(name('a stale base version is REFUSED, not applied'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: DOC });
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 1, document: OTHER });
+
+    const stale = await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 1, document: DOC });
+    assert.equal(stale.ok, false);
+    assert.equal(stale.reason, 'conflict');
+    assert.equal((await store.getSyncDocument('acct_a', 'open-cut')).document, OTHER, 'unchanged');
+  });
+
+  test(name('baseVersion 0 is "I have never synced", NOT a wildcard'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: DOC });
+
+    /* This is the whole protection a fresh install has to defeat before it can flatten a year
+       of settings, so it is the one assertion in this section that must never be softened. */
+    const naive = await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: OTHER });
+    assert.equal(naive.ok, false);
+    assert.equal(naive.reason, 'conflict');
+    assert.equal((await store.getSyncDocument('acct_a', 'open-cut')).document, DOC);
+  });
+
+  test(name('two products on one account do not share a document'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: DOC });
+    await store.putSyncDocument('acct_a', 'atlas', { baseVersion: 0, document: OTHER });
+
+    assert.equal((await store.getSyncDocument('acct_a', 'open-cut')).document, DOC);
+    assert.equal((await store.getSyncDocument('acct_a', 'atlas')).document, OTHER);
+    assert.equal((await store.getSyncDocument('acct_a', 'atlas')).version, 1, 'versions are per product');
+  });
+
+  test(name('two accounts do not share a document'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.create(anAccount({ id: 'acct_b' }));
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: DOC });
+
+    assert.equal(await store.getSyncDocument('acct_b', 'open-cut'), null);
+  });
+
+  test(name('there is nothing to sync for an account that does not exist'), async (t) => {
+    const store = await makeStore(t);
+    const written = await store.putSyncDocument('acct_NOPE', 'open-cut', { baseVersion: 0, document: DOC });
+    assert.equal(written.ok, false);
+    assert.equal(written.reason, 'no-such-account');
+  });
+
+  test(name('deleting removes it, and again is a no-op'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: DOC });
+
+    assert.equal((await store.deleteSyncDocument('acct_a', 'open-cut')).ok, true);
+    assert.equal(await store.getSyncDocument('acct_a', 'open-cut'), null);
+
+    const again = await store.deleteSyncDocument('acct_a', 'open-cut');
+    assert.equal(again.ok, false);
+    assert.equal(again.reason, 'nothing-stored');
+  });
+
+  test(name('a deleted document starts again from version 0'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: DOC });
+    await store.deleteSyncDocument('acct_a', 'open-cut');
+
+    assert.equal((await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: OTHER })).ok, true);
+  });
+
+  test(name('a sync document is not part of the account document'), async (t) => {
+    const store = await makeStore(t);
+    await store.create(anAccount({ id: 'acct_a' }));
+    await store.putSyncDocument('acct_a', 'open-cut', { baseVersion: 0, document: DOC });
+
+    /* Both stores keep it beside the account rather than inside it, so `get()` means the same
+       thing in each — and so a Worker's account read does not carry a table it rarely wants. */
+    assert.equal('sync' in (await store.get('acct_a')), false);
+  });
+
   /* ── Counting ────────────────────────────────────────────────────────────────────────── */
 
   test(name('count reflects what exists'), async (t) => {

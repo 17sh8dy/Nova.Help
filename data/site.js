@@ -22,9 +22,16 @@ export const site = {
    */
   contactEmail: 'getnovasupport@gmail.com',
 
-  /** Where the rest of the ecosystem lives. `null` hides the link entirely. */
+  /**
+   * Where the rest of the ecosystem lives. `null` hides the link entirely.
+   *
+   * ⚠ THE PRODUCT DIRECTORY IS NOT HERE — it is `data/ecosystem.js`, which is the one file to
+   * edit when a Nova product's site goes live. This block is only for site-wide destinations
+   * that are not products. `nova` was `https://nova.example`, which is not a real address;
+   * it is `null` until there is one, so nothing renders a link nobody can follow.
+   */
   links: {
-    nova: 'https://nova.example',
+    nova: null,
     status: null,
   },
 };
@@ -40,4 +47,17 @@ export const footerLinks = [
   { href: '/tickets', label: 'Check a ticket' },
   { href: '/account', label: 'Nova Account' },
   { href: '/privacy', label: 'How we use your data' },
+];
+
+/**
+ * Nova.Help's own description of what a Nova Account is for, shown where a product asks.
+ *
+ * Kept as data because it is a PROMISE, and a promise that is restated in four templates is a
+ * promise that ends up worded four ways. Every one of these has to stay true of every Nova
+ * product, or it does not belong in the list.
+ */
+export const accountPromises = [
+  'Every Nova product works without an account, and keeps working if you never make one.',
+  'One account across Nova — never one per product.',
+  'Signing in adds your identity. It never takes a feature away from somebody signed out.',
 ];

@@ -141,7 +141,22 @@ function oauthNotice(kind) {
 
 /* ── Sign in ───────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * True when this sign-in is a stop on the way back to connecting a device
+ * (an app showing a code — see deviceRoutes.mjs's `signInFirst`), not an
+ * ordinary visit to Nova.Help.
+ *
+ * The whole fix for "I don't see anywhere to type the code" lives in this one
+ * check: the code was never lost, it's carried in `next`, but a sign-in page
+ * that reads as generic ("keeps your tickets together") gives no sign that
+ * finishing it returns you to anything at all. Detecting it from `next`
+ * itself needs no new parameter and can't drift out of sync with where the
+ * redirect actually goes.
+ */
+const connectingDevice = (next) => typeof next === 'string' && next.startsWith('/account/device');
+
 export function signInPage({ values = {}, errors = {}, failed = false, rateLimited = null, next = '', providers = [], notice: oauth = null } = {}) {
+  const forDevice = connectingDevice(next);
   const problem = rateLimited
     ? notice(
         'warning',
@@ -162,7 +177,13 @@ export function signInPage({ values = {}, errors = {}, failed = false, rateLimit
       ${problem}
       <form class="card form" method="post" action="/account/sign-in" novalidate>
         <h2 class="card__title">${icon('user', { size: 20 })} Sign in to Nova</h2>
-        <p class="card__lede">One Nova Account, for Nova.Help and — in time — the rest of Nova.</p>
+        <p class="card__lede">
+          ${
+            forDevice
+              ? "The app is waiting with a code. Sign in and you'll come straight back to it."
+              : 'One Nova Account, for Nova.Help and — in time — the rest of Nova.'
+          }
+        </p>
         ${providerButtons(providers, { next })}
         ${nextField(next)}
         ${textField({
@@ -193,19 +214,21 @@ export function signInPage({ values = {}, errors = {}, failed = false, rateLimit
           address on the account.
         </p>
       </form>
-      ${guestWayOut}
+      ${forDevice ? '' : guestWayOut}
     </div>
   </section>`;
 
   return page({
-    title: 'Sign in',
+    title: forDevice ? 'Sign in to connect an app' : 'Sign in',
     description: 'Sign in to your Nova Account.',
     path: '/account/sign-in',
     noindex: true,
     hero: hero({
       eyebrow: 'Nova Account',
-      title: 'Sign in',
-      lede: 'Signing in is optional. It keeps your tickets together and saves typing your address every time.',
+      title: forDevice ? 'Connect an app' : 'Sign in',
+      lede: forDevice
+        ? 'Sign in, and you will land back on the code the app is showing.'
+        : 'Signing in is optional. It keeps your tickets together and saves typing your address every time.',
     }),
     main,
   });
@@ -214,6 +237,7 @@ export function signInPage({ values = {}, errors = {}, failed = false, rateLimit
 /* ── Create an account ─────────────────────────────────────────────────────────────────── */
 
 export function createAccountPage({ values = {}, errors = {}, rateLimited = null, next = '', providers = [] } = {}) {
+  const forDevice = connectingDevice(next);
   const problem = rateLimited
     ? notice(
         'warning',
@@ -228,8 +252,11 @@ export function createAccountPage({ values = {}, errors = {}, rateLimited = null
       <form class="card form" method="post" action="/account/new" novalidate>
         <h2 class="card__title">${icon('nova', { size: 20 })} Create a Nova Account</h2>
         <p class="card__lede">
-          One account for Nova products. Today it works with Nova.Help; other Nova products
-          will use the same account rather than asking you to make another.
+          ${
+            forDevice
+              ? 'The app is waiting with a code. Create an account and you will land back on it.'
+              : 'One account for Nova products. Today it works with Nova.Help; other Nova products will use the same account rather than asking you to make another.'
+          }
         </p>
         ${providerButtons(providers, { next, verb: 'Sign up with' })}
         ${nextField(next)}
@@ -282,19 +309,21 @@ export function createAccountPage({ values = {}, errors = {}, rateLimited = null
           nobody will ever ask you for it.
         </p>
       </form>
-      ${guestWayOut}
+      ${forDevice ? '' : guestWayOut}
     </div>
   </section>`;
 
   return page({
-    title: 'Create a Nova Account',
+    title: forDevice ? 'Create an account to connect an app' : 'Create a Nova Account',
     description: 'Create a Nova Account to keep your support tickets together.',
     path: '/account/new',
     noindex: true,
     hero: hero({
       eyebrow: 'Nova Account',
-      title: 'Create a Nova Account',
-      lede: 'Optional, and quick. It exists so you do not type your email address into every ticket.',
+      title: forDevice ? 'Connect an app' : 'Create a Nova Account',
+      lede: forDevice
+        ? 'Sign up, and you will land back on the code the app is showing.'
+        : 'Optional, and quick. It exists so you do not type your email address into every ticket.',
     }),
     main,
   });
@@ -316,7 +345,7 @@ function ticketRow(ticket) {
   </li>`;
 }
 
-export function accountPage({ account, tickets = [], total = 0, banner = null, providers = [], problem = null } = {}) {
+export function accountPage({ account, tickets = [], total = 0, banner = null, providers = [], problem = null, devices = [] } = {}) {
   const list = tickets.length
     ? `<ul class="mines">${tickets.map(ticketRow).join('')}</ul>`
     : `<p class="card__body">
@@ -379,6 +408,49 @@ export function accountPage({ account, tickets = [], total = 0, banner = null, p
       </section>`
     : '';
 
+  /**
+   * Nova apps signed in to this account.
+   *
+   * THIS LIST IS THE OTHER HALF OF THE DEVICE GRANT. Approving a connection is only safe if
+   * somebody can see afterwards what they approved and take it back, so this section is not
+   * optional decoration — it is where "I lost my laptop" and "what did I click last week"
+   * get answered.
+   *
+   * The card renders EMPTY-BUT-PRESENT rather than disappearing when nothing is connected,
+   * because "no apps are connected" is a fact worth being able to read. Nothing here is a
+   * token; a session id is the handle to revoke by and grants nothing on its own.
+   */
+  const deviceRow = (device) => `<li class="connection">
+    <span class="connection__glyph">${icon('cube', { size: 18 })}</span>
+    <span class="connection__text">
+      <span class="connection__name">${esc(device.productName)}</span>
+      <span class="connection__state">
+        ${device.label ? `${esc(device.label)} — c` : 'C'}onnected ${esc(when(device.createdAt))}
+      </span>
+    </span>
+    <form method="post" action="/account/devices/revoke">
+      <input type="hidden" name="session" value="${esc(device.id)}" />
+      ${button('Sign out', { type: 'submit', variant: 'ghost', size: 'sm' })}
+    </form>
+  </li>`;
+
+  const connectedApps = `<section class="card card--quiet" aria-labelledby="apps-heading">
+    <h2 class="card__title" id="apps-heading">${icon('cube', { size: 18 })} Connected apps</h2>
+    ${
+      devices.length
+        ? `<ul class="connections">${devices.map(deviceRow).join('')}</ul>`
+        : `<p class="card__body">
+            No Nova apps are signed in to this account. They all work without one — connecting
+            is how an app knows who you are, not how it starts working.
+          </p>`
+    }
+    <p class="card__body card__body--fine">
+      An app shows you a code; you type it in at <a href="/account/device">Connect an app</a>.
+      Signing one out here stops it immediately, and leaves anything it has saved to your
+      account exactly where it is.
+    </p>
+  </section>`;
+
   const problemHtml =
     problem === 'last-way-in'
       ? notice(
@@ -403,7 +475,9 @@ export function accountPage({ account, tickets = [], total = 0, banner = null, p
             ? notice('success', 'Connected', '<p>You can now sign in with it. It is the same Nova Account, not a second one.</p>')
             : banner === 'unlinked'
               ? notice('success', 'Disconnected', '<p>That sign-in method has been removed from this account.</p>')
-              : banner === 'password-reset'
+              : banner === 'device-signed-out'
+                ? notice('success', 'That app is signed out', '<p>It no longer has access to your Nova Account. Anything it saved to your account is untouched.</p>')
+                : banner === 'password-reset'
                 ? notice(
                     'success',
                     'Your password has been changed',
@@ -464,12 +538,14 @@ export function accountPage({ account, tickets = [], total = 0, banner = null, p
 
         ${connections}
 
+        ${connectedApps}
+
         <div class="card card--quiet">
-          <h2 class="card__title">${icon('shield', { size: 18 })} One account, more of Nova later</h2>
+          <h2 class="card__title">${icon('shield', { size: 18 })} One account, across Nova</h2>
           <p class="card__body">
-            Nova.Help is the first Nova product to use Nova Accounts. Others — the Launcher,
-            the Store, and the apps — are intended to use this same account rather than asking
-            you to make a new one. Nothing else uses it yet.
+            This is the same Nova Account everywhere — the Nova site, Nova.Help, and the apps
+            that can connect to it. Making a second one is never necessary, and no Nova product
+            requires one: they all work without ever signing in.
           </p>
         </div>
       </aside>

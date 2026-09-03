@@ -99,6 +99,18 @@ function toDocument(row, sessionRows, identityRows, productRows, resetRow = null
       createdAt: s.created_at,
       expiresAt: s.expires_at,
       product: s.product,
+      /* THE DEVICE FIELDS APPEAR ONLY WHEN THEY WERE WRITTEN, the same way `lastUsedAt` does
+         above. A browser session has no kind, no scopes and no label in the JSON store, so it
+         must have none here either, or the two stores stop round-tripping the same document
+         and the contract test that compares them is the thing that notices.
+
+         'web' being the column DEFAULT rather than a value anyone writes is what makes that
+         work for the rows that already exist: a session written before device sessions did is
+         read back exactly as it was stored, and every check that matters asks whether the kind
+         IS 'device' — so an absent kind is refused, which is what it means. */
+      ...(s.kind && s.kind !== 'web' ? { kind: s.kind } : {}),
+      ...(s.scopes ? { scopes: String(s.scopes).split(' ').filter(Boolean) } : {}),
+      ...(s.label === null || s.label === undefined ? {} : { label: s.label }),
     })),
     identities: identityRows.map((i) => ({
       provider: i.provider,
@@ -120,6 +132,12 @@ const sessionValues = (accountId, session) => [
   session.createdAt ?? new Date().toISOString(),
   session.expiresAt,
   session.product ?? null,
+  session.kind ?? 'web',
+  /* Joined with a space, matching the schema's comment. NULL rather than '' for a web
+     session, because "this session has no scope list" and "its scope list is empty" are
+     different facts and only the first is true of a browser cookie. */
+  session.scopes ? [...session.scopes].join(' ') : null,
+  session.label ?? null,
 ];
 
 const identityValues = (accountId, identity) => [
@@ -138,8 +156,24 @@ const INSERT_IDENTITY = `
   VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
 const INSERT_SESSION = `
-  INSERT INTO account_sessions (account_id, id, created_at, expires_at, product)
-  VALUES (?, ?, ?, ?, ?)`;
+  INSERT INTO account_sessions (account_id, id, created_at, expires_at, product, kind, scopes, label)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+/** A device_authorizations row as the service expects it. Scopes come back as a list. */
+const toDeviceGrant = (row) => ({
+  id: row.id,
+  deviceCodeHash: row.device_code_hash,
+  userCode: row.user_code,
+  product: row.product,
+  scopes: String(row.scopes ?? '').split(' ').filter(Boolean),
+  deviceName: row.device_name,
+  status: row.status,
+  accountId: row.account_id,
+  createdAt: row.created_at,
+  expiresAt: row.expires_at,
+  decidedAt: row.decided_at ?? null,
+  lastPolledAt: row.last_polled_at ?? null,
+});
 
 export function createD1AccountStore({ db, retries = 5 }) {
   const readStatements = (id) => [
@@ -634,6 +668,217 @@ export function createD1AccountStore({ db, retries = 5 }) {
         .bind(accountId)
         .run();
       return removal.meta.changes === 1 ? { ok: true } : { ok: false, reason: 'no-reset' };
+    },
+
+    /* ── Device authorizations ──────────────────────────────────────────────────────────
+     *
+     * The same four methods the JSON store has, over a table instead of three Maps — because
+     * a Worker has no process to hold a Map and no boot at which to build one. Everything the
+     * JSON store achieves with a lock, this achieves with a guarded statement and
+     * `meta.changes`, which is the same trade the rest of this file makes.
+     */
+
+    async createDeviceAuthorization(record) {
+      try {
+        await db
+          .prepare(
+            `INSERT INTO device_authorizations
+               (id, device_code_hash, user_code, product, scopes, device_name,
+                status, account_id, created_at, expires_at, decided_at, last_polled_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+          )
+          .bind(
+            record.id,
+            record.deviceCodeHash,
+            record.userCode,
+            record.product,
+            (record.scopes ?? []).join(' '),
+            record.deviceName ?? null,
+            record.status ?? 'pending',
+            record.accountId ?? null,
+            record.createdAt,
+            record.expiresAt,
+          )
+          .run();
+        return { ok: true };
+      } catch (error) {
+        /* A live grant already holds this user code. The service retries with a fresh one —
+           which is why the collision has to be reported rather than thrown. */
+        if (isUniqueViolation(error) && /user_code/.test(String(error?.message ?? ''))) {
+          return { ok: false, reason: 'user-code-taken' };
+        }
+        throw error;
+      }
+    },
+
+    async getDeviceAuthorizationByUserCode(userCode) {
+      const row = await db
+        .prepare('SELECT * FROM device_authorizations WHERE user_code = ?')
+        .bind(userCode)
+        .first();
+      return row ? toDeviceGrant(row) : null;
+    },
+
+    /**
+     * Approve or deny, as one guarded UPDATE.
+     *
+     * `status = 'pending'` is inside the WHERE, so a second approval changes nothing and
+     * `meta.changes` says so. That is what stops two clicks — or two people who both have the
+     * code — from deciding which account a device attaches to by racing.
+     */
+    async decideDeviceAuthorization(userCode, { accountId, status, now = new Date() } = {}) {
+      const at = now.toISOString();
+      const update = await db
+        .prepare(
+          `UPDATE device_authorizations
+              SET status = ?, account_id = ?, decided_at = ?
+            WHERE user_code = ? AND status = 'pending' AND expires_at > ?`,
+        )
+        .bind(status, status === 'approved' ? accountId : null, at, userCode, at)
+        .run();
+
+      if (update.meta.changes === 1) {
+        const row = await db
+          .prepare('SELECT * FROM device_authorizations WHERE user_code = ?')
+          .bind(userCode)
+          .first();
+        const grant = row ? toDeviceGrant(row) : null;
+        return grant ? { ok: true, grant, product: grant.product } : { ok: false, reason: 'not-found' };
+      }
+
+      /* Nothing changed. This read exists only to say something true about why — no decision
+         was recorded either way, so none of these answers affects safety. */
+      const row = await db
+        .prepare('SELECT * FROM device_authorizations WHERE user_code = ?')
+        .bind(userCode)
+        .first();
+      if (!row) return { ok: false, reason: 'not-found' };
+      if (new Date(row.expires_at).getTime() <= now.getTime()) return { ok: false, reason: 'expired' };
+      return { ok: false, reason: 'already-decided' };
+    },
+
+    /**
+     * Spend an approved grant, or say why not.
+     *
+     * SINGLE USE IS THE DELETE, NOT THE READ. Two pollers can both read an approved row; only
+     * one of them can delete it, and only the one whose `meta.changes` is 1 is handed the
+     * grant. The alternative — read, decide, then delete — is the shape that would let two
+     * devices walk away holding tokens for one approval.
+     */
+    async redeemDeviceAuthorization({ deviceCodeHash, minIntervalSeconds = 0, now = new Date() } = {}) {
+      const at = now.toISOString();
+      const row = await db
+        .prepare('SELECT * FROM device_authorizations WHERE device_code_hash = ?')
+        .bind(deviceCodeHash)
+        .first();
+
+      /* A code that never existed and one that lapsed are the same answer, so polling is not a
+         way to learn which device codes are real. */
+      if (!row) return { ok: false, reason: 'expired_token' };
+      if (new Date(row.expires_at).getTime() <= now.getTime()) {
+        await db.prepare('DELETE FROM device_authorizations WHERE id = ?').bind(row.id).run();
+        return { ok: false, reason: 'expired_token' };
+      }
+
+      if (row.last_polled_at && minIntervalSeconds > 0) {
+        const since = (now.getTime() - new Date(row.last_polled_at).getTime()) / 1000;
+        // Does NOT consume the grant, and does not move the clock — the client is told to wait.
+        if (since < minIntervalSeconds) return { ok: false, reason: 'slow_down' };
+      }
+      await db
+        .prepare('UPDATE device_authorizations SET last_polled_at = ? WHERE id = ?')
+        .bind(at, row.id)
+        .run();
+
+      if (row.status === 'pending') return { ok: false, reason: 'authorization_pending' };
+
+      const removal = await db
+        .prepare(`DELETE FROM device_authorizations WHERE id = ? AND status = ? AND expires_at > ?`)
+        .bind(row.id, row.status, at)
+        .run();
+
+      if (row.status !== 'approved') return { ok: false, reason: 'access_denied' };
+      /* Somebody else deleted it between the read and here — they hold the token, not us. */
+      if (removal.meta.changes !== 1) return { ok: false, reason: 'expired_token' };
+
+      return { ok: true, grant: toDeviceGrant(row) };
+    },
+
+    async countDeviceAuthorizations({ now = new Date() } = {}) {
+      const at = now.toISOString();
+      await db.prepare('DELETE FROM device_authorizations WHERE expires_at <= ?').bind(at).run();
+      return Number(
+        await db.prepare('SELECT COUNT(*) AS n FROM device_authorizations').first('n'),
+      );
+    },
+
+    /* ── Sync documents ─────────────────────────────────────────────────────────────────
+     *
+     * The same three methods the JSON store has. The version check is IN the statement rather
+     * than around it: an UPDATE guarded on `version = ?` and an INSERT that can only land when
+     * no row exists are each one atomic decision, so two clients pushing at once cannot both
+     * be told they won and one of them silently lose an edit.
+     */
+
+    async getSyncDocument(accountId, product) {
+      const row = await db
+        .prepare('SELECT version, document, updated_at FROM account_sync_documents WHERE account_id = ? AND product = ?')
+        .bind(accountId, product)
+        .first();
+      return row ? { version: row.version, document: row.document, updatedAt: row.updated_at } : null;
+    },
+
+    async putSyncDocument(accountId, product, { baseVersion, document, now = new Date() } = {}) {
+      const at = now.toISOString();
+
+      /* baseVersion 0 is "I have never synced", and it is NOT a wildcard: the INSERT lands
+         only when there is no row, so a fresh install cannot flatten an existing document by
+         claiming ignorance of it. A conflict here is reported, never resolved. */
+      if (baseVersion === 0) {
+        try {
+          await db
+            .prepare(
+              `INSERT INTO account_sync_documents (account_id, product, version, document, updated_at)
+               VALUES (?, ?, 1, ?, ?)`,
+            )
+            .bind(accountId, product, document, at)
+            .run();
+          return { ok: true, version: 1, updatedAt: at };
+        } catch (error) {
+          if (isUniqueViolation(error)) return { ok: false, reason: 'conflict' };
+          /* No account to hang it on. The foreign key is what says so, and saying
+             'no-such-account' is more useful than re-throwing a constraint name. */
+          if (/FOREIGN KEY/i.test(String(error?.message ?? ''))) {
+            return { ok: false, reason: 'no-such-account' };
+          }
+          throw error;
+        }
+      }
+
+      const update = await db
+        .prepare(
+          `UPDATE account_sync_documents
+              SET version = version + 1, document = ?, updated_at = ?
+            WHERE account_id = ? AND product = ? AND version = ?`,
+        )
+        .bind(document, at, accountId, product, baseVersion)
+        .run();
+
+      if (update.meta.changes === 1) return { ok: true, version: baseVersion + 1, updatedAt: at };
+
+      /* Nothing changed: either the version moved under this write, or there is no row, or
+         there is no account. None of them wrote anything, so this read only exists to name
+         the one that happened. */
+      if (!(await this.has(accountId))) return { ok: false, reason: 'no-such-account' };
+      return { ok: false, reason: 'conflict' };
+    },
+
+    async deleteSyncDocument(accountId, product) {
+      const removal = await db
+        .prepare('DELETE FROM account_sync_documents WHERE account_id = ? AND product = ?')
+        .bind(accountId, product)
+        .run();
+      return removal.meta.changes === 1 ? { ok: true } : { ok: false, reason: 'nothing-stored' };
     },
 
     async has(id) {

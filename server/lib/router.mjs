@@ -26,6 +26,15 @@ export function createRouter() {
   return {
     get: (pattern, handler) => add('GET', pattern, handler),
     post: (pattern, handler) => add('POST', pattern, handler),
+    /* PUT exists for one thing: `/api/sync`, where the request replaces a document at a known
+       address and a repeat of it must be harmless. That is what PUT means, and using POST for
+       it would make an idempotent write look like an action with a side effect each time.
+       Nothing a browser form does reaches this verb, so no page route uses it. */
+    put: (pattern, handler) => add('PUT', pattern, handler),
+    /* OPTIONS exists only for CORS preflight on the product-token endpoints. No page route
+       uses it, and a path without an explicit OPTIONS handler still 405s rather than
+       accidentally answering one. */
+    options: (pattern, handler) => add('OPTIONS', pattern, handler),
 
     /**
      * Find a handler for a request.

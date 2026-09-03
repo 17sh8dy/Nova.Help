@@ -159,13 +159,25 @@ export function registerAccountRoutes(router, ctx) {
     const mine = await tickets.listForAccount(account.id, { limit: 50 });
     const params = new URL(req.url, 'http://local').searchParams;
     const welcome = params.get('welcome');
-    const banner = ['created', 'signed-in', 'signed-out-everywhere', 'linked', 'unlinked', 'password-reset'].includes(welcome)
+    const banner = [
+      'created',
+      'signed-in',
+      'signed-out-everywhere',
+      'linked',
+      'unlinked',
+      'password-reset',
+      'device-signed-out',
+    ].includes(welcome)
       ? welcome
       : null;
     /* A closed set, so nothing a caller invents is reflected back into the page. */
     const problem = ['last-way-in', 'identity-taken', 'not-linked', 'failed'].includes(params.get('oauth'))
       ? params.get('oauth')
       : null;
+
+    /* Every Nova app signed in to this account. Never a token — a session id and a date, which
+       is what is needed to recognise one and take it back. */
+    const devices = await accounts.listDevices(account.id);
 
     return sendHtml(
       res,
@@ -176,6 +188,7 @@ export function registerAccountRoutes(router, ctx) {
         banner,
         problem,
         providers: offered(),
+        devices,
       }),
     );
   });

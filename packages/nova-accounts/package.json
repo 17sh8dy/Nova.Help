@@ -17,7 +17,12 @@
     "./validation.mjs": "./validation.mjs",
     "./service.mjs": "./service.mjs",
     "./mail.mjs": "./mail.mjs",
-    "./resetTokens.mjs": "./resetTokens.mjs"
+    "./resetTokens.mjs": "./resetTokens.mjs",
+    "./products.mjs": "./products.mjs",
+    "./productTokens.mjs": "./productTokens.mjs",
+    "./deviceCodes.mjs": "./deviceCodes.mjs",
+    "./deviceService.mjs": "./deviceService.mjs",
+    "./syncDocuments.mjs": "./syncDocuments.mjs"
   },
   "files": [
     "*.mjs",

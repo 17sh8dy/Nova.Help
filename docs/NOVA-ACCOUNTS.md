@@ -1,7 +1,15 @@
 # Nova Accounts
 
 **One Nova Account, for the whole Nova ecosystem.**
-Status as of 2026-08-30: the foundation is built, **Nova.Help is the first — and so far only — product integrated with it**, and it signs people in with a password or with Google.
+
+Status as of 2026-09-01: the foundation is built and **six products use it** — Nova and
+Nova.Help at their own origins, and Open Cut, Online Earth, Replay.GG and Atlas through the
+device authorization grant.
+
+> **⚠ The wire protocol below is no longer open. It was decided and built on 2026-09-01 —
+> see [NOVA-PRODUCTS.md](./NOVA-PRODUCTS.md), which supersedes §1's "deliberately NOT decided"
+> list on that point.** Everything else in this document — the account model, passwords,
+> sessions, the linking rules, and §4 — is unchanged and still governs.
 
 ---
 
@@ -49,18 +57,29 @@ that keep it true.
 Nothing about this is a licence to build the whole ecosystem's identity layer now. The
 following are open, and should stay open until a second product actually needs them:
 
-- The wire protocol between products and the account service (OAuth 2.1 + PKCE? A signed
-  first-party token? Something narrower?).
+- ~~The wire protocol between products and the account service.~~ **DECIDED 2026-09-01:** the
+  OAuth 2.0 Device Authorization Grant (RFC 8628) for installed products, plus a scoped,
+  revocable product token signed under a key that is not the session key. It was decided the
+  way this section asked for — with four real products in front of it, which between them ruled
+  out every alternative. See [NOVA-PRODUCTS.md](./NOVA-PRODUCTS.md).
 - Whether the account service is a separate deployment or a library other Node products embed.
+  Still open, and now cheaper to change: an installed product already talks to it over HTTP.
 - Entitlements, purchases, and licence checks — those belong to the Store and the Launcher,
   and they are a different system that *uses* identity rather than part of identity.
 - Profiles, avatars, friends, anything social.
+- Refresh tokens. A product token lasts 180 days and re-authorising is the flow again.
 
-Guessing at these now means being stuck with the guess.
+Guessing at the rest now means being stuck with the guess.
 
 ---
 
 ## 2. Where the code is
+
+⚠ The paths in this block are pre-2026-08-31. `server/accounts/` is now the workspace package
+`packages/nova-accounts` (see [NOVA-IDENTITY.md](./NOVA-IDENTITY.md)), and it has since gained
+`products.mjs`, `productTokens.mjs`, `deviceCodes.mjs`, `deviceService.mjs` and
+`syncDocuments.mjs`. The rule below — that nothing inside may import from outside — is what
+made that move a rename rather than a rewrite, and it still holds.
 
 ```
 server/accounts/          ← the module. Portable by design.
@@ -370,10 +389,9 @@ Additive and read as `?? null`, so a version 1 document on disk is still a valid
 2. **Password change and reset.** Both call `signOutEverywhere` — the machinery is already there.
 3. **A staff console**, which needs roles on the account (`role: 'user' | 'staff'`) and real
    authorisation, not just authentication.
-4. **The second product.** This is the decision point for the wire protocol, and it should be
-   taken with a real product's needs in front of it. The Launcher is the highest-value
-   candidate (§1, rule 6). Note that Google sign-in does NOT pre-decide this: it is how a
-   person proves who they are TO Nova, not how a Nova product proves it to another.
+4. ~~**The second product.**~~ **DONE.** Four of them, and the protocol they settled is in
+   [NOVA-PRODUCTS.md](./NOVA-PRODUCTS.md). The Launcher, when it arrives, is one entry in
+   `products.mjs` and needs no change to any of this.
 5. **More providers**, when somebody asks for them. Apple and Discord are a file each (§3a).
 5. **Postgres**, whenever the JSON files stop being obviously fine. One new file implementing
    `store.mjs`'s seven methods.

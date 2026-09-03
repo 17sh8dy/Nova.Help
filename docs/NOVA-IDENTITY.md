@@ -1,14 +1,20 @@
 # One Nova Account, many front doors
 
 ```
-                    Nova Account
-                (@nova/accounts + one D1 database)
-                          │
-        ┌─────────────────┼─────────────────┐
-        │                 │                 │
-      Nova            Nova.Help        future products
-   (Pages + Fns)       (Worker)      Online Earth, Open Cut, Atlas
+                            Nova Account
+                     (@nova/accounts + one D1 database)
+                                  │
+        ┌─────────────────────────┴─────────────────────────┐
+        │  same process, same database                       │  over HTTP, device grant
+        │                                                    │  (@nova/account-client)
+   ┌────┴────┬───────────┐              ┌──────────┬─────────┴──┬───────────┐
+   Nova      Nova.Help                  Open Cut   Online Earth  Replay.GG  Atlas
+ (Pages+Fns)  (Worker)                  (Electron) (web+Electron)(Electron) (Tauri)
+   cookie      cookie                        scoped product token, revocable
 ```
+
+The left half is this document. The right half — how an *installed* product signs somebody in,
+and why it is the device grant — is [NOVA-PRODUCTS.md](./NOVA-PRODUCTS.md).
 
 There is **one** account system. It lives in `packages/nova-accounts`, it is the code Nova.Help
 has been running and testing, and both front doors bind the **same D1 database**. The Nova site
@@ -95,7 +101,7 @@ unset; a browser rejects a `Domain` its host is not under.
 
 ## Google
 
-**Not implemented, deliberately.** Both Nova forms show a disabled "Continue with Google —
+**Not implemented on the Nova site, deliberately.** Both Nova forms show a disabled "Continue with Google —
 Coming soon" control. It is a `<button disabled>`, not a link and not a form target, there is no
 route behind it, and tests assert that `/account/auth/google` is a 404 and that no `href` or
 `action` mentions Google. No credentials exist anywhere.
