@@ -1,16 +1,20 @@
 {
   // Nova.Help on Cloudflare Workers.
   //
-  // NOT DEPLOYED. This configuration exists so the migration can be run and verified locally
-  // with `wrangler dev`, which uses a real local D1 and a real local R2. There is no route or
-  // custom domain here on purpose: adding one is the deliberate act that puts this on the
-  // internet, and two blockers in server/worker.mjs have to be cleared first.
+  // NOT DEPLOYED. The real R2 bucket and D1 database below exist and the schema is applied
+  // (2026-09-03) — verified by filing a real ticket with an attachment against them directly and
+  // reading both the D1 row and the R2 object back. There is still no route or custom domain
+  // here on purpose: adding one is the deliberate act that puts this on the internet. Remaining
+  // before a first deploy: NOVA_HELP_SECRET as a real secret (still only in .dev.vars locally),
+  // and the scrypt cost re-measured on a real Worker rather than trusted from `wrangler dev` —
+  // see docs/CLOUDFLARE.md.
   //
-  //   npx wrangler d1 create nova-help          # once, then paste the id below
-  //   npx wrangler d1 execute nova-help --local --file server/store/schema.sql
-  //   npx wrangler d1 execute nova-help --local --file server/accounts/schema.sql
-  //   npx wrangler secret put NOVA_HELP_SECRET  # for a real environment, not for --local
-  //   npx wrangler dev
+  //   npx wrangler secret put NOVA_HELP_SECRET  # for the real environment, not --local
+  //
+  // To exercise the real R2 + D1 without deploying: `wrangler dev --remote` no longer supports
+  // Durable Objects (which RATE_LIMITER is), so add "remote": true to the d1_databases and
+  // r2_buckets entries below, run plain `wrangler dev`, then revert — the Durable Object still
+  // runs local either way, and this repo's default dev experience should stay fully local.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nova-help",
   "main": "server/worker.mjs",
@@ -33,10 +37,9 @@
     {
       "binding": "DB",
       "database_name": "nova-help",
-      // A PLACEHOLDER. `wrangler dev` refuses to start without an id even though it never
-      // reaches the network in local mode, so this stands in until `wrangler d1 create
-      // nova-help` prints the real one. Nothing is deployed until it is replaced.
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      // The real production database, created 2026-09-03 with `wrangler d1 create nova-help`
+      // (region WNAM). Schema applied — see docs/CLOUDFLARE.md.
+      "database_id": "60b37c5d-0992-4d35-831a-a1fa1bdceb7f"
     }
   ],
 

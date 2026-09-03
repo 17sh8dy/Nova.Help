@@ -3,20 +3,22 @@
 D1 for the documents, R2 for the bytes, a Durable Object per key for the throttles, and the
 Node implementation still in place and still the default. **Nothing is deployed.**
 `wrangler.jsonc` has no route and no custom domain; adding one is the deliberate act that puts
-this on the internet, and the `database_id` is still a placeholder. The remaining items are
-under *Still open* — none of them now blocks a deploy, but the scrypt measurement should be
-taken on a real Worker before this carries real traffic.
+this on the internet. The real `nova-help-attachments` R2 bucket and the real `nova-help` D1
+database (schema applied) exist as of 2026-09-03, and the `database_id` is the real one; the
+scrypt cost has been measured against the real Cloudflare edge and holds up at the actual usage
+pattern (see *Verified*). What remains before a first deploy: `NOVA_HELP_SECRET` as a real
+secret (still only in `.dev.vars` locally) — see *Still open*.
 
 ## Where things are
 
 | | Node (default) | Cloudflare |
 |---|---|---|
 | Tickets | `server/store/fileStore.mjs` | `server/store/d1Store.mjs` |
-| Accounts | `server/accounts/store.mjs` | `server/accounts/d1Store.mjs` |
+| Accounts | `packages/nova-accounts/store.mjs` | `packages/nova-accounts/d1Store.mjs` |
 | Attachments | `server/core/attachments.mjs` | `server/store/r2Attachments.mjs` |
 | Rate limiting | `server/lib/rateLimit.mjs` | `server/lib/doRateLimit.mjs` + `server/rateLimiterObject.mjs` |
 | Entry point | `server/index.mjs` | `server/worker.mjs` |
-| Schema | — | `server/store/schema.sql`, `server/accounts/schema.sql` |
+| Schema | — | `server/store/schema.sql`, `packages/nova-accounts/schema.sql` |
 
 `npm start` and `npm test` are unchanged and still run on JSON files. The Cloudflare stores are
 selected by passing `stores` to `createApp`, which only `server/worker.mjs` and the D1 tests do.
@@ -33,7 +35,7 @@ strong:
 
 ```sh
 npx wrangler d1 execute nova-help --local --file server/store/schema.sql
-npx wrangler d1 execute nova-help --local --file server/accounts/schema.sql
+npx wrangler d1 execute nova-help --local --file packages/nova-accounts/schema.sql
 echo 'NOVA_HELP_SECRET=a-local-development-secret-of-sufficient-length' > .dev.vars
 npx wrangler dev
 ```
@@ -120,10 +122,21 @@ Rate limiting was driven against the real Durable Object too:
 
 **Password hashing works, which was not the expectation.** `node:crypto`'s scrypt runs under
 `nodejs_compat` at the full production cost — stored records read `scrypt$N=131072,r=8,p=1`.
-But N=2¹⁷ needs 128 MiB, which *is* an isolate's entire memory limit, and a derivation costs
+N=2¹⁷ needs 128 MiB, which *is* an isolate's entire memory limit, and a derivation costs
 roughly 0.2s of CPU. Local `workerd` does not enforce the deployed platform's CPU and memory
-ceilings, so **this must be measured again on a real Worker.** It is a thing to verify, not
-currently a thing to fix.
+ceilings, so this had to be measured on a real Worker rather than trusted from `wrangler dev`.
+
+**Measured 2026-09-03, on the real Cloudflare edge (`wrangler dev --remote` against a
+zero-binding worker running the exact `hashPassword`/`derive` call — the temporary preview
+that mode uses, not a deployment; nothing was left behind).** One hash per request — which is
+the real usage pattern, exactly one per sign-in or sign-up attempt — completed successfully
+every time, ~300ms wall-clock per request after warmup (that figure includes this machine's
+network round trip to the edge, not pure CPU time; `Date.now()` read from inside the isolate is
+unreliable for this, since Workers clamp its resolution during CPU-bound synchronous work as a
+timing-side-channel defence). Three hashes stacked in one request, which nothing in this app
+ever does, reliably hit **"Worker exceeded CPU time limit"** — informative about the margin,
+not a production risk, since no code path issues more than one per request. **Verified working
+at the actual usage pattern; not a blocker.**
 
 ## Rate limiting
 
