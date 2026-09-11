@@ -1,15 +1,25 @@
 {
   // Nova.Help on Cloudflare Workers.
   //
-  // NOT DEPLOYED. The real R2 bucket and D1 database below exist and the schema is applied
-  // (2026-09-03) — verified by filing a real ticket with an attachment against them directly and
-  // reading both the D1 row and the R2 object back. There is still no route or custom domain
-  // here on purpose: adding one is the deliberate act that puts this on the internet. Remaining
-  // before a first deploy: NOVA_HELP_SECRET as a real secret (still only in .dev.vars locally),
-  // and the scrypt cost re-measured on a real Worker rather than trusted from `wrangler dev` —
-  // see docs/CLOUDFLARE.md.
+  // DEPLOYED 2026-09-10, on the free workers.dev subdomain — no custom domain, on purpose:
+  // Brandon isn't buying nova.help (or any domain) for this right now, so Cloudflare's free
+  // "random" URL is the real answer, not a placeholder for one. Live at
+  // https://nova-help.17sh8dy.workers.dev. The real R2 bucket and D1 database exist and the
+  // schema is applied (2026-09-03) — verified by filing a real ticket with an attachment
+  // against them directly and reading both the D1 row and the R2 object back — and
+  // NOVA_HELP_SECRET is a real secret on the account (`wrangler secret list` confirms it, set
+  // 2026-09-03). See docs/CLOUDFLARE.md.
   //
-  //   npx wrangler secret put NOVA_HELP_SECRET  # for the real environment, not --local
+  // A `nova.help` zone *was* added to this account 2026-09-03, but its status is still
+  // "pending" (activation_failure_reason: "unresolvable") — the domain doesn't resolve
+  // anywhere, meaning it was never actually registered at a registrar. Workers Custom Domains
+  // turn out not to need an *active* zone to attach (only an *existing* one) — a domain binding
+  // was created successfully against the pending zone during this same session — but it can
+  // never actually serve traffic until the zone goes active, which needs the domain bought and
+  // its nameservers pointed at Cloudflare's. That attempt was torn back down; if nova.help (or
+  // any domain) is ever bought for this, point its nameservers at `liz.ns.cloudflare.com` /
+  // `norm.ns.cloudflare.com`, wait for the zone to go "active", then add the `routes` block
+  // back (git history has the exact shape) and redeploy.
   //
   // To exercise the real R2 + D1 without deploying: `wrangler dev --remote` no longer supports
   // Durable Objects (which RATE_LIMITER is), so add "remote": true to the d1_databases and
@@ -19,6 +29,10 @@
   "name": "nova-help",
   "main": "server/worker.mjs",
   "compatibility_date": "2026-08-01",
+  // No routes/custom domain configured — that leaves the free workers.dev subdomain as the
+  // default deploy target, which is exactly what's wanted here. Explicit rather than implicit,
+  // so a reader doesn't have to know wrangler's default to know this is deliberate.
+  "workers_dev": true,
 
   // The app is ESM and uses node:crypto, node:buffer and friends throughout.
   "compatibility_flags": ["nodejs_compat"],
@@ -50,17 +64,6 @@
     }
   ],
 
-  // PREPARED, NOT ACTIVE. This is config only — it takes effect on the next `wrangler deploy`,
-  // and that deploy will itself FAIL on this step until nova.help exists as a Cloudflare zone
-  // (Workers Custom Domains require "an active Cloudflare zone" — there are zero zones on this
-  // account as of 2026-09-03). Onboard the domain to Cloudflare first, then deploy.
-  "routes": [
-    {
-      "pattern": "nova.help",
-      "custom_domain": true
-    }
-  ],
-
   // One object per limiter per key, holding a fixed-window counter. NOT the `ratelimits`
   // binding: its period must be 10 or 60 seconds and every window here is ten minutes to an
   // hour, it returns only `{ success }` so there is no Retry-After to report, and it cannot
@@ -83,10 +86,13 @@
   ],
 
   "vars": {
-    // The public origin, used to build OAuth redirect URIs. Left at the dev value on purpose —
-    // this repo has one environment, so flipping it here would break `wrangler dev`'s own OAuth
-    // redirects. Change this to "https://nova.help" as part of the deploy itself, not before.
-    "NOVA_HELP_ORIGIN": "http://localhost:8787"
+    // The public origin, used to build OAuth redirect URIs. This is the real, deployed value —
+    // `wrangler dev` doesn't read it: `.dev.vars` carries a `NOVA_HELP_ORIGIN=http://localhost:8787`
+    // override that Wrangler prefers for local runs, the same way it already does for
+    // NOVA_HELP_SECRET. Editing this value by hand before every deploy and reverting it after
+    // was the alternative, and it is exactly the kind of manual step that regresses production
+    // the day someone forgets it.
+    "NOVA_HELP_ORIGIN": "https://nova-help.17sh8dy.workers.dev"
   }
 
   // NOVA_HELP_SECRET, NOVA_GOOGLE_CLIENT_ID and NOVA_GOOGLE_SECRET are secrets, never vars.

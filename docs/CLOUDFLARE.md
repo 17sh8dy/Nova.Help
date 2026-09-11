@@ -1,13 +1,20 @@
 # Nova.Help on Cloudflare
 
 D1 for the documents, R2 for the bytes, a Durable Object per key for the throttles, and the
-Node implementation still in place and still the default. **Nothing is deployed.**
-`wrangler.jsonc` has no route and no custom domain; adding one is the deliberate act that puts
-this on the internet. The real `nova-help-attachments` R2 bucket and the real `nova-help` D1
-database (schema applied) exist as of 2026-09-03, and the `database_id` is the real one; the
-scrypt cost has been measured against the real Cloudflare edge and holds up at the actual usage
-pattern (see *Verified*). What remains before a first deploy: `NOVA_HELP_SECRET` as a real
-secret (still only in `.dev.vars` locally) — see *Still open*.
+Node implementation still in place and still the default. **Deployed 2026-09-10**, live at
+<https://nova-help.17sh8dy.workers.dev> — the free workers.dev subdomain, not a custom domain.
+No domain is being bought for this right now, so that free URL is the real answer rather than a
+placeholder for one. `NOVA_HELP_SECRET` is a real secret on the account, and the real
+`nova-help-attachments` R2 bucket and the real `nova-help` D1 database (schema applied) have
+been live since 2026-09-03; the scrypt cost has been measured against the real Cloudflare edge
+and holds up at the actual usage pattern (see *Verified*).
+
+A `nova.help` zone was added to the account 2026-09-03 and a Custom Domain route was briefly
+attached to test it, but the zone's status is "pending" (`activation_failure_reason:
+"unresolvable"`) — the domain doesn't resolve anywhere, so it was never actually registered.
+Custom Domains turn out not to need an *active* zone to attach, only an *existing* one, which is
+why that attempt succeeded at the API level while still serving nothing. It's been torn back
+down; see `wrangler.jsonc`'s own comment for how to bring it back if a domain is ever bought.
 
 ## Where things are
 
