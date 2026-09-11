@@ -48,7 +48,7 @@ export const products = [
   },
   {
     id: 'open-cut',
-    name: 'Open Cut',
+    name: 'Nova Cut',
     blurb: 'A video and photo editor that is free, and stays free.',
     support: 'open-cut',
     url: null,

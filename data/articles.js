@@ -48,13 +48,13 @@ export const articles = [
   },
   {
     id: 'opencut-ffmpeg',
-    title: 'Open Cut needs FFmpeg installed separately',
+    title: 'Nova Cut needs FFmpeg installed separately',
     summary:
-      'FFmpeg is not bundled with Open Cut. Without it on your system, import and export of some formats will fail.',
+      'FFmpeg is not bundled with Nova Cut. Without it on your system, import and export of some formats will fail.',
     steps: [
       'Install FFmpeg for your platform and make sure it is on your PATH.',
-      'Restart Open Cut completely so it picks up the new installation.',
-      'If Open Cut still reports it as missing, open a ticket and include how you installed it.',
+      'Restart Nova Cut completely so it picks up the new installation.',
+      'If Nova Cut still reports it as missing, open a ticket and include how you installed it.',
     ],
   },
   {

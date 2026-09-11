@@ -497,7 +497,7 @@ test('the account page lists connected apps and can sign one out', async (t) => 
   const { app, browser } = await connect(origin);
 
   const page = await browser.get('/account').then((r) => r.text());
-  assert.match(page, /Open Cut/, 'the product is named');
+  assert.match(page, /Nova Cut/, 'the product is named');
   assert.match(page, /A laptop/, 'and the device it said it was');
 
   const session = /name="session" value="([^"]+)"/.exec(page)?.[1];

@@ -78,7 +78,7 @@ test('the homepage asks the question and lists every product', async (t) => {
 
   assert.equal(response.status, 200);
   assert.match(html, /What do you need help with\?/);
-  for (const name of ['Nova Site', 'Online Earth', 'Atlas', 'Open Cut', 'Nova Engine', 'Replay.GG']) {
+  for (const name of ['Nova Site', 'Online Earth', 'Atlas', 'Nova Cut', 'Nova Engine', 'Replay.GG']) {
     assert.ok(html.includes(name), `homepage is missing ${name}`);
   }
   // The launcher is deliberately not offered yet.

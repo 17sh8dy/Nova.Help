@@ -1,15 +1,15 @@
 import { accountCategory, feedbackCategory, otherCategory } from '../shared.js';
 
-/** Open Cut — the editor. Export is the category that generates the most tickets, so it leads. */
+/** Nova Cut — the editor. Export is the category that generates the most tickets, so it leads. */
 export const project = {
   id: 'open-cut',
-  name: 'Open Cut',
+  name: 'Nova Cut',
   blurb: 'The video editor and photo editor — import, timeline, effects and export.',
   kind: 'Desktop app',
   icon: 'film',
   environment: {
     collect: true,
-    versionLabel: 'Open Cut version',
+    versionLabel: 'Nova Cut version',
     versionHint: 'Help -> About shows the exact build.',
     platforms: ['Windows', 'macOS', 'Linux'],
   },
@@ -20,8 +20,8 @@ export const project = {
       blurb: 'Installing, updating and first run.',
       icon: 'download',
       issueTypes: [
-        { id: 'install-fails', label: "Open Cut won't install", priorityMode: 'ask', priority: 'high' },
-        { id: 'wont-start', label: "Open Cut won't start", priorityMode: 'ask', priority: 'high', articles: ['collect-logs'] },
+        { id: 'install-fails', label: "Nova Cut won't install", priorityMode: 'ask', priority: 'high' },
+        { id: 'wont-start', label: "Nova Cut won't start", priorityMode: 'ask', priority: 'high', articles: ['collect-logs'] },
         {
           id: 'ffmpeg',
           label: 'It asks for FFmpeg, or export tools are missing',

@@ -122,7 +122,7 @@ test('the whole flow: a code, an approval, a token', async (t) => {
   assert.equal(result.account.displayName, 'Ann');
   assert.equal(client.isSignedIn(), true);
   assert.deepEqual(client.scopes(), ['identity', 'sync']);
-  assert.equal('email' in result.account, false, 'Open Cut was never granted an address');
+  assert.equal('email' in result.account, false, 'Nova Cut was never granted an address');
 });
 
 test('a refused code comes back as "denied", and nothing is stored', async (t) => {

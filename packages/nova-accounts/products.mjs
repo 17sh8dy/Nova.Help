@@ -79,7 +79,7 @@ export const PRODUCTS = Object.freeze({
 
   'open-cut': define({
     id: 'open-cut',
-    name: 'Open Cut',
+    name: 'Nova Cut',
     kind: 'device',
     scopes: ['support', 'sync'],
     summary: 'The video and photo editor.',
