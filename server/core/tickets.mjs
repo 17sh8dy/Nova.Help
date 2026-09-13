@@ -37,6 +37,7 @@ import { newEventId, newTicketId } from './ids.mjs';
 import { classify } from './policy.mjs';
 import { validateFiles } from './attachments.mjs';
 import { validateReplyInput, validateTicketInput } from './validation.mjs';
+import { ticketCreatedMessage } from './notify.mjs';
 
 /**
  * 2 added `accountId`. The field is additive and read as `?? null`, so a version 1 document
@@ -62,7 +63,15 @@ function event({ type, actor, body = null, visibility = 'public', meta = null })
   };
 }
 
-export function createTicketService({ store, attachments }) {
+/**
+ * `mailer` and `notifyEmail` are both optional, and both injected rather than imported — same
+ * reasoning as the mailer in packages/nova-accounts/mail.mjs: which transport a deployment has,
+ * and which inbox watches new tickets, are configuration, not something this module decides.
+ * Neither being set means new-ticket mail is simply not sent; it does NOT mean tickets stop
+ * being created or stored — the database row is written first and is the actual record. See
+ * core/notify.mjs for the message itself.
+ */
+export function createTicketService({ store, attachments, mailer = null, notifyEmail = null, logger = console }) {
   /** Generate an id that is not already taken. Collisions are vanishingly rare; loops are cheap. */
   async function allocateId() {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -70,6 +79,33 @@ export function createTicketService({ store, attachments }) {
       if (!(await store.has(id))) return id;
     }
     throw new Error('Could not allocate a unique ticket id.');
+  }
+
+  /**
+   * Tell staff a ticket exists. Never awaited by the caller of `create()` for its result and
+   * never allowed to throw past this function: the ticket is already durably saved by the time
+   * this runs, and a stranger filing a bug report should not get a 500 because an SMTP server
+   * was unreachable. A failure is logged, once, loudly — the same posture packages/nova-
+   * accounts/mail.mjs takes with a failed send.
+   */
+  async function notifyStaff(ticket) {
+    if (!mailer || !notifyEmail) return;
+    try {
+      const project = getProject(ticket.project);
+      const category = getCategory(ticket.project, ticket.category);
+      const issueType = getIssueType(ticket.project, ticket.category, ticket.issueType);
+      const message = ticketCreatedMessage({
+        to: notifyEmail,
+        ticket,
+        projectLabel: project?.label,
+        categoryLabel: category?.label,
+        issueTypeLabel: issueType?.label,
+      });
+      const result = await mailer.send(message);
+      if (!result?.ok) logger.warn?.(`[nova.help] new-ticket notification for ${ticket.id} did not send (${result?.reason ?? 'unknown reason'})`);
+    } catch (error) {
+      logger.error?.(`[nova.help] new-ticket notification for ${ticket.id} threw`, error);
+    }
   }
 
   return {
@@ -153,6 +189,10 @@ export function createTicketService({ store, attachments }) {
         await attachments.discard(id);
         throw err;
       }
+
+      // The ticket is saved by this point — a failed or unconfigured notification below can
+      // never turn a successful submission into a failed one. See notifyStaff()'s own comment.
+      await notifyStaff(ticket);
 
       return { ok: true, ticket };
     },

@@ -96,14 +96,23 @@ export async function createApp({
    */
   createLimiter = ({ windowMs, max }) => createRateLimiter({ windowMs, max }),
   /**
-   * How password-reset mail leaves the building: `{ send({ to, subject, text }) }`.
+   * How mail leaves the building: `{ send({ to, subject, text }) }`. ONE transport, shared by
+   * password reset and by the new-ticket staff notification below — both are "a message needs
+   * to leave this deployment", and a deployment configures exactly one way to do that.
    *
-   * Omitted in development, the log transport prints the message — including the reset link —
-   * so the flow can be walked on a machine with no mail. Omitted in production there is NO
-   * transport, and the reset flow accepts requests and sends nothing; that is announced at
-   * boot rather than discovered later. See server/accounts/mail.mjs.
+   * Omitted in development, the log transport prints the message — including a reset link —
+   * so either flow can be walked on a machine with no mail. Omitted in production there is NO
+   * transport, and both flows accept requests and send nothing; that is announced at boot
+   * rather than discovered later. See packages/nova-accounts/mail.mjs and server/mail/smtpMailer.mjs
+   * for a real transport.
    */
   mailer = null,
+  /**
+   * Where a "somebody just filed a ticket" notification goes. Not a Nova Account, not staff
+   * sign-in — just an inbox somebody actually reads. The ticket itself is saved regardless of
+   * whether this mail sends; see core/notify.mjs and core/tickets.mjs's notifyStaff().
+   */
+  supportNotifyEmail = 'getnovasupport@gmail.com',
   /**
    * The Domain to scope the session cookie to, e.g. `.nova.xyz`.
    *
@@ -123,7 +132,6 @@ export async function createApp({
   const loaded = await store.init();
 
   const attachments = stores?.attachments ?? createAttachmentStore({ dir: dataDir });
-  const tickets = createTicketService({ store, attachments });
 
   /* On Cloudflare there is no filesystem to keep a key in and no process to generate one for,
      so the Worker passes its secret binding straight in. Everywhere else this is unchanged. */
@@ -153,20 +161,25 @@ export async function createApp({
     providers.push(factory(settings));
   }
 
-  /* Password reset needs a way to send mail, and this deployment may not have one.
-     ⚠ WITHOUT A TRANSPORT THE RESET FLOW CANNOT COMPLETE. It fails safely — every page says
-     the same neutral thing it says for an address with no account, so nothing is disclosed —
-     but no link reaches anybody. That is worth one loud line at boot rather than a support
-     ticket about support. In development the log transport prints the link to the console,
-     which is the only way to walk the flow on a machine with no mail; it is refused in
-     production, where printing reset links into a log file is its own incident. */
+  /* Password reset AND the new-ticket staff notification both need a way to send mail, and
+     this deployment may not have one.
+     ⚠ WITHOUT A TRANSPORT NEITHER FLOW SENDS ANYTHING. Password reset fails safely — every
+     page says the same neutral thing it says for an address with no account, so nothing is
+     disclosed, but no link reaches anybody. A filed ticket is UNAFFECTED — it is saved to the
+     store regardless — only the "somebody, go look at this" mail is skipped. Both are worth one
+     loud line at boot rather than a support ticket about support. In development the log
+     transport prints the message to the console, which is the only way to walk either flow on
+     a machine with no mail; it is refused in production, where printing a reset link into a log
+     file is its own incident. */
   const transport = mailer ?? (dev ? createLogMailer({ logger }) : null);
   if (!transport) {
     logger.warn?.(
-      '[nova.help] No mail transport configured: password reset will accept requests and send nothing. ' +
-        'See docs/PASSWORD-RESET.md.',
+      '[nova.help] No mail transport configured: password reset and new-ticket notifications will ' +
+        'accept requests and send nothing. See docs/PASSWORD-RESET.md and server/mail/smtpMailer.mjs.',
     );
   }
+
+  const tickets = createTicketService({ store, attachments, mailer: transport, notifyEmail: supportNotifyEmail, logger });
 
   const accounts = await createAccounts({
     dir: dataDir,

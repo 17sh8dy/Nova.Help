@@ -211,6 +211,13 @@ function build(env) {
     secureCookies: true,
     origin: env.NOVA_HELP_ORIGIN ?? null,
     signingSecret: env.NOVA_HELP_SECRET,
+    /* No `mailer` binding is wired here: node:net/node:tls (server/mail/smtpMailer.mjs) are not
+       available inside a Worker isolate the way they are under plain Node, and this deployment
+       has no custom domain yet for Cloudflare Email Sending either (see wrangler.jsonc's own
+       note on that). Both password reset and new-ticket notifications therefore send nothing in
+       production today — same as before this change — until one of those is set up. Configurable
+       regardless, so setting NOVA_HELP_SUPPORT_EMAIL doesn't require a code change once mail is. */
+    ...(env.NOVA_HELP_SUPPORT_EMAIL ? { supportNotifyEmail: env.NOVA_HELP_SUPPORT_EMAIL } : {}),
     stores: {
       tickets: createD1TicketStore({ db: env.DB }),
       accounts: createD1AccountStore({ db: env.DB }),

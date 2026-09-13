@@ -13,11 +13,19 @@
  *   NOVA_GOOGLE_CLIENT_ID     )  both must be set for "Continue with Google" to appear at all.
  *   NOVA_GOOGLE_SECRET        )  Unset, Nova.Help runs on email and password exactly as before.
  *   NODE_ENV              'production' turns on secure cookies and asset caching
+ *   SMTP_HOST             default smtp.gmail.com — real mail transport for password reset AND
+ *   SMTP_PORT             )  default 587           new-ticket staff notifications. Unset SMTP_USER
+ *   SMTP_USER             )  the account            or SMTP_PASS and there is no real transport: dev
+ *   SMTP_PASS             )  an APP PASSWORD,        prints mail to the console, production sends
+ *                         )  not the login password  nothing (see app.mjs and server/mail/smtpMailer.mjs)
+ *   SMTP_FROM             default = SMTP_USER — Gmail requires the two to match (or be an alias)
+ *   NOVA_HELP_SUPPORT_EMAIL   where new-ticket notifications go; default getnovasupport@gmail.com
  */
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.mjs';
+import { createSmtpMailer } from './mail/smtpMailer.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..');
@@ -29,11 +37,27 @@ const dataDir = process.env.NOVA_HELP_DATA
   ? path.resolve(process.env.NOVA_HELP_DATA)
   : path.join(repoRoot, 'var');
 
+// A real transport only when there is enough to authenticate with — half of SMTP_USER/SMTP_PASS
+// is a misconfiguration, not "half-enabled", so it is treated the same as neither being set and
+// app.mjs falls back to the dev log transport (or nothing, in production).
+const smtp =
+  process.env.SMTP_USER && process.env.SMTP_PASS
+    ? createSmtpMailer({
+        host: process.env.SMTP_HOST || undefined,
+        port: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined,
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      })
+    : null;
+
 const app = await createApp({
   dataDir,
   dev,
   trustProxy: process.env.NOVA_HELP_TRUST_PROXY === '1',
   origin: process.env.NOVA_HELP_ORIGIN ?? null,
+  ...(smtp ? { mailer: smtp } : {}),
+  ...(process.env.NOVA_HELP_SUPPORT_EMAIL ? { supportNotifyEmail: process.env.NOVA_HELP_SUPPORT_EMAIL } : {}),
   oauth: {
     ...(process.env.NOVA_GOOGLE_CLIENT_ID || process.env.NOVA_GOOGLE_SECRET
       ? {
