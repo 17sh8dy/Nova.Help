@@ -95,11 +95,11 @@ function client(origin) {
   };
 }
 
-const FLOW = '/help/online-earth/globe/globe-not-loading';
+const FLOW = '/help/nova-cut/install/wont-start';
 
 const TICKET = {
-  subject: 'The globe never finishes loading',
-  description: 'It sits on the loading spinner forever on a fresh profile, on two machines.',
+  subject: 'Nova Cut never gets past the splash screen',
+  description: 'It sits on a black window and never reaches the interface, on two machines.',
   priority: 'high',
 };
 
@@ -612,9 +612,9 @@ test('a ticket filed through the API while signed in belongs to the account', as
   await signUp(browser, { email: 'ann@example.com' });
 
   const response = await browser.json('/api/tickets', {
-    project: 'online-earth',
-    category: 'globe',
-    issueType: 'globe-not-loading',
+    project: 'nova-cut',
+    category: 'install',
+    issueType: 'wont-start',
     ...TICKET,
     email: 'someone-else@example.com',
   });

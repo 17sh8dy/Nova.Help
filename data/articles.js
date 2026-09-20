@@ -47,7 +47,7 @@ export const articles = [
     ],
   },
   {
-    id: 'opencut-ffmpeg',
+    id: 'nova-cut-ffmpeg',
     title: 'Nova Cut needs FFmpeg installed separately',
     summary:
       'FFmpeg is not bundled with Nova Cut. Without it on your system, import and export of some formats will fail.',

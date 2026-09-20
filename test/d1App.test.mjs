@@ -28,11 +28,11 @@ import { applySchema } from '../server/store/migrate.mjs';
 
 const CHEAP = { N: 1024, r: 8, p: 1 };
 const PASSWORD = 'a passphrase nobody guesses';
-const FLOW = '/help/online-earth/globe/globe-not-loading';
+const FLOW = '/help/nova-cut/install/wont-start';
 
 const TICKET = {
-  subject: 'The globe never finishes loading',
-  description: 'It sits on the loading spinner forever on a fresh profile, on two machines.',
+  subject: 'Nova Cut never gets past the splash screen',
+  description: 'It sits on a black window and never reaches the interface, on two machines.',
   email: 'reporter@example.com',
   name: 'Sam',
   priority: 'high',
@@ -134,7 +134,7 @@ test('[d1] a ticket filed through the flow lands in the tables', async (t) => {
   const row = await db.prepare('SELECT * FROM tickets WHERE id = ?').bind(id).first();
   assert.equal(row.subject, TICKET.subject);
   assert.equal(row.status, 'open');
-  assert.equal(row.project, 'online-earth');
+  assert.equal(row.project, 'nova-cut');
   assert.equal(row.priority, 'high');
   assert.equal(row.version, 1, 'a fresh ticket is at version 1');
   assert.equal(row.account_id, null, 'filed as a guest');
@@ -155,7 +155,7 @@ test('[d1] the ticket page opens with the pass it handed back, and not without i
 
   const withPass = await browser.get(location);
   assert.equal(withPass.status, 200);
-  assert.match(await withPass.text(), /The globe never finishes loading/);
+  assert.match(await withPass.text(), /Nova Cut never gets past the splash screen/);
 
   const stranger = await client(origin).get(`/tickets/${id}`);
   assert.equal(stranger.status, 403, 'an id on its own opens nothing');

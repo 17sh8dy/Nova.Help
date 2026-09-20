@@ -89,6 +89,7 @@ function header(currentPath, account) {
       </a>
       <div class="masthead__end">
         <nav class="masthead__nav" aria-label="Primary">${links}</nav>
+        <span class="nova-lang-slot" data-nova-lang-slot></span>
         ${accountControl(account, currentPath)}
       </div>
     </div>
@@ -186,6 +187,8 @@ ${noindex ? '<meta name="robots" content="noindex, nofollow" />' : ''}
 <meta property="og:title" content="${esc(fullTitle)}" />
 <meta property="og:description" content="${esc(description)}" />
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+<script src="/assets/nova-i18n-boot.js"></script>
+<link rel="stylesheet" href="/assets/nova-i18n.css" />
 <link rel="stylesheet" href="/assets/help.css" />
 <script src="/assets/help.js" defer></script>
 </head>
@@ -195,6 +198,7 @@ ${header(path, account)}
 ${hero}
 <main id="main" class="main" tabindex="-1">${main}</main>
 ${footer()}
+<script src="/assets/nova-i18n.js" data-base="/i18n/" defer></script>
 </body>
 </html>`;
 }

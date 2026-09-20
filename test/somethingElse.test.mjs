@@ -57,7 +57,7 @@ test('every category in every product ends with "Something else"', () => {
       assert.equal(category.issueTypes.filter((t) => t.catchAll).length, 1);
     }
   }
-  assert.equal(categories, 41, 'the catalog should still have 41 categories');
+  assert.equal(categories, 27, 'the catalog should still have 27 categories');
   assert.equal(catalog.stats.catchAll, categories);
 });
 
@@ -86,7 +86,7 @@ test('the hatch offers no articles, so the form shows no suggestion panel', () =
 });
 
 test('the hatch lets the reporter choose severity rather than pinning one', () => {
-  const hatch = catalog.getIssueType('online-earth', 'globe', CATCH_ALL_ID);
+  const hatch = catalog.getIssueType('nova-cut', 'install', CATCH_ALL_ID);
   assert.equal(hatch.priorityMode, 'ask');
   assert.equal(hatch.priority, catalog.DEFAULT_PRIORITY);
 });
@@ -157,7 +157,7 @@ test('the catch-all id is reserved against a data file declaring its own', () =>
 
 test('a ticket filed against the hatch validates like any other', () => {
   const result = validateTicketInput({
-    project: 'open-cut',
+    project: 'nova-cut',
     category: 'editing',
     issueType: CATCH_ALL_ID,
     subject: 'Something odd happens when I scrub',
@@ -173,17 +173,17 @@ test('a ticket filed against the hatch validates like any other', () => {
 
 test('step three shows the hatch last, set apart from the listed issues', async (t) => {
   const { origin } = await startServer(t);
-  const html = await call(origin, '/help/online-earth/globe').then((r) => r.text());
+  const html = await call(origin, '/help/nova-cut/editing').then((r) => r.text());
 
   assert.match(html, /Something else/);
   assert.match(html, /choices--hatch/, 'the hatch should be in its own group, not among the issues');
   assert.match(html, /choice--catch-all/);
-  assert.match(html, /href="\/help\/online-earth\/globe\/something-else"/);
+  assert.match(html, /href="\/help\/nova-cut\/editing\/something-else"/);
 
   // It comes after every real issue on the page.
   const hatchAt = html.indexOf('choices--hatch');
-  assert.ok(hatchAt > html.indexOf('globe-not-loading'));
-  assert.ok(hatchAt > html.indexOf('camera-controls'));
+  assert.ok(hatchAt > html.indexOf('timeline-behaviour'));
+  assert.ok(hatchAt > html.indexOf('lost-work'));
 });
 
 test('every step-three screen on the site offers the way out', async (t) => {
@@ -202,7 +202,7 @@ test('every step-three screen on the site offers the way out', async (t) => {
 
 test('choosing it goes straight to the ticket form, not to another list', async (t) => {
   const { origin } = await startServer(t);
-  const response = await call(origin, '/help/online-earth/globe/something-else');
+  const response = await call(origin, '/help/nova-cut/editing/something-else');
   const html = await response.text();
 
   assert.equal(response.status, 200);

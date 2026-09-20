@@ -2121,3 +2121,14 @@ a.continue__option:hover {
     border: 1px solid;
   }
 }
+
+
+/* Nova i18n: on phones the header wraps into two rows - brand, language and account on top, the
+   nav links beneath - rather than squeezing the language selector in beside them. */
+@media (max-width: 560px) {
+  .masthead__inner { flex-wrap: wrap; row-gap: .35rem; padding-block: .5rem; height: auto; min-height: 60px; }
+  .masthead__inner .wordmark { margin-right: auto; }
+  .masthead__end { display: contents; }
+  .masthead__end .nova-lang-slot, .masthead__end .account-chip { order: 2; }
+  .masthead__nav { order: 3; flex: 1 0 100%; gap: 1rem; }
+}

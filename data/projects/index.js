@@ -13,10 +13,8 @@
  * does not list it.
  */
 import { project as novaSite } from './nova-site.js';
-import { project as onlineEarth } from './online-earth.js';
 import { project as atlas } from './atlas.js';
-import { project as openCut } from './open-cut.js';
-import { project as novaEngine } from './nova-engine.js';
+import { project as novaCut } from './nova-cut.js';
 import { project as replayGg } from './replay-gg.js';
 
-export const projects = [novaSite, onlineEarth, atlas, openCut, novaEngine, replayGg];
+export const projects = [novaSite, atlas, novaCut, replayGg];

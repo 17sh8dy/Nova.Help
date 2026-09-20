@@ -28,11 +28,11 @@ async function harness(extra = {}) {
 }
 
 const validInput = {
-  project: 'online-earth',
-  category: 'globe',
-  issueType: 'globe-not-loading',
-  subject: 'The globe never finishes loading',
-  description: 'It sits on the loading spinner forever on a fresh profile, on two machines.',
+  project: 'nova-cut',
+  category: 'install',
+  issueType: 'wont-start',
+  subject: 'Nova Cut never gets past the splash screen',
+  description: 'It sits on a black window and never reaches the interface, on two machines.',
   email: 'reporter@example.com',
   name: 'Sam',
   priority: 'high',
@@ -57,7 +57,7 @@ test('filing a ticket sends exactly one notification to the configured address',
   assert.match(message.subject, new RegExp(created.ticket.id));
   assert.match(message.text, /reporter@example\.com/);
   assert.match(message.text, new RegExp(created.ticket.id));
-  assert.match(message.text, /The globe never finishes loading/);
+  assert.match(message.text, /Nova Cut never gets past the splash screen/);
 });
 
 test('with no mailer configured, the ticket is still created — notification is best-effort only', async (t) => {
@@ -115,21 +115,21 @@ test('a mailer that reports failure (not a throw) does not fail ticket creation 
 test('ticketCreatedMessage never invents information the ticket does not have', () => {
   const ticket = {
     id: 'NH-TEST-0001',
-    project: 'online-earth',
-    category: 'globe',
+    project: 'nova-cut',
+    category: 'install',
     priority: 'high',
     requester: { email: 'reporter@example.com' },
     accountId: null,
-    subject: 'The globe never finishes loading',
-    description: 'It sits on the loading spinner forever.',
+    subject: 'Nova Cut never gets past the splash screen',
+    description: 'It sits on a black window and never reaches the interface.',
     createdAt: '2026-09-13T12:00:00.000Z',
   };
 
-  const message = ticketCreatedMessage({ to: 'getnovasupport@gmail.com', ticket, projectLabel: 'Online Earth', categoryLabel: 'Globe' });
+  const message = ticketCreatedMessage({ to: 'getnovasupport@gmail.com', ticket, projectLabel: 'Nova Cut', categoryLabel: 'Install & setup' });
 
   assert.equal(message.to, 'getnovasupport@gmail.com');
-  assert.match(message.text, /Category: Globe/);
-  assert.match(message.text, /Project: Online Earth/);
+  assert.match(message.text, /Category: Install & setup/);
+  assert.match(message.text, /Project: Nova Cut/);
   assert.match(message.text, /User: reporter@example\.com \(guest — no Nova Account\)/);
   assert.match(message.text, /Ticket ID: NH-TEST-0001/);
   assert.match(message.text, /Submitted: Sep\w*\. 13, 2026/);

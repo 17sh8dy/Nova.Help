@@ -660,12 +660,12 @@ test('a linked Google account opens only its own tickets', async (t) => {
 
 /* ── Everything that was working still works ───────────────────────────────────────────── */
 
-const FLOW = '/help/online-earth/globe/globe-not-loading';
+const FLOW = '/help/nova-cut/install/wont-start';
 
 async function fileTicket(browser, origin, overrides = {}) {
   const response = await browser.post(FLOW, {
-    subject: 'The globe never finishes loading',
-    description: 'It sits on the loading spinner forever on a fresh profile, on two machines.',
+    subject: 'Nova Cut never gets past the splash screen',
+    description: 'It sits on a black window and never reaches the interface, on two machines.',
     priority: 'high',
     ...overrides,
   });

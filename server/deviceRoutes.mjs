@@ -58,10 +58,10 @@
  *
  *    The page routes under /account get none of this and stay same-origin, cookie-only.
  */
-import { bearerToken, DEVICE_POLL_INTERVAL_SECONDS, SYNC_DOCUMENT_LIMIT } from '@nova/accounts';
+import { bearerToken, DEVICE_POLL_INTERVAL_SECONDS, normalizeUserCode, SYNC_DOCUMENT_LIMIT } from '@nova/accounts';
 import { parseBody, readBody } from './lib/body.mjs';
 import { clientIp, redirect, sendHtml, sendJson } from './lib/http.mjs';
-import { deviceApprovePage, deviceCodePage } from './views/pages/device.mjs';
+import { deviceApprovePage, deviceCodePage, deviceConfirmPage } from './views/pages/device.mjs';
 import { tooManyPage } from './views/pages/status.mjs';
 
 /** A start or a poll is a handful of fields. A sync document has its own, larger, limit. */
@@ -457,6 +457,32 @@ export function registerDeviceRoutes(router, ctx) {
 
     const account = await viewer.current(req);
     if (!account) return redirect(res, signInFirst(code));
+
+    /* APPROVING NEEDS THE CODE TYPED BACK. Clicking "Connect this app" only leads to a second
+       step that asks for the code the APP is showing; the grant is decided only once what was
+       typed matches. A link that carries the code can no longer approve on its own, so the
+       person has to be looking at the app that asked. Denying needs no such proof. */
+    if (approve) {
+      const typed = codeFrom(body.fields?.confirm);
+      const described = await accounts.describeDeviceAuthorization(code);
+      if (!described.ok) {
+        return sendHtml(res, deviceCodePage({ account, code, error: describeProblem(described.reason) }), {
+          status: 404,
+        });
+      }
+      if (!typed || normalizeUserCode(typed) !== normalizeUserCode(code)) {
+        return sendHtml(
+          res,
+          deviceConfirmPage({
+            grant: described.grant,
+            code,
+            account,
+            error: typed ? 'That does not match the code the app is showing. Check it and try again.' : null,
+          }),
+          { status: typed ? 400 : 200 },
+        );
+      }
+    }
 
     const decided = await accounts.decideDeviceAuthorization(code, { accountId: account.id, approve });
     if (!decided.ok) {

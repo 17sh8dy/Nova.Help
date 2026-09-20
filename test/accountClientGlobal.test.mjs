@@ -114,7 +114,7 @@ test('a client built from the classic script signs in against the real server', 
   const flow = await client.beginSignIn({ deviceName: 'A browser' });
   assert.equal(flow.ok, true);
   const waiting = flow.wait();
-  await post('/account/device', { code: flow.userCode, action: 'approve' });
+  await post('/account/device', { code: flow.userCode, action: 'approve', confirm: flow.userCode });
 
   const result = await waiting;
   assert.equal(result.ok, true, JSON.stringify(result));

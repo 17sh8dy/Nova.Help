@@ -69,7 +69,7 @@ function browser(origin) {
   return {
     signUp: (email = 'ann@example.com') =>
       go('/account/new', { email, displayName: 'Ann', password: PASSWORD, passwordConfirm: PASSWORD }),
-    approve: (code) => go('/account/device', { code, action: 'approve' }),
+    approve: (code) => go('/account/device', { code, action: 'approve', confirm: code }),
     deny: (code) => go('/account/device', { code, action: 'deny' }),
   };
 }

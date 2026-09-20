@@ -1,0 +1,104 @@
+/* Nova i18n - the language selector. A small frosted-glass pill that borrows each site's own
+   tokens (--ink, --panel, --rule, --accent ...) and falls back to neutral values, so it reads as
+   part of the page it is on rather than a widget bolted to it. */
+
+/* Until the catalog for a non-English language arrives, hold the page back for a moment rather
+   than flash English at someone who chose Spanish. A script always removes this; the animation is
+   the failsafe if it never does. */
+html.i18n-pending body { animation: ni-reveal 0s 1.6s forwards; opacity: 0; }
+@keyframes ni-reveal { to { opacity: 1; } }
+
+.ni-lang { position: relative; display: inline-block; font-family: var(--sans, var(--font-sans, system-ui, sans-serif)); line-height: 1; }
+
+/* Used only when a page has no [data-nova-lang-slot]: a corner of the viewport. */
+.ni-lang--float { position: fixed; top: 12px; right: 12px; z-index: 900; }
+
+.ni-lang__btn {
+  display: inline-flex; align-items: center; gap: .45rem;
+  height: 34px; padding: 0 .65rem 0 .6rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule, var(--line, var(--border, rgba(150, 160, 190, .28))));
+  background: color-mix(in srgb, var(--panel, var(--surface, #111522)) 55%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5); backdrop-filter: blur(14px) saturate(1.5);
+  color: var(--ink-2, var(--text-2, var(--text-muted, var(--muted, #c4cadb))));
+  font: 500 .86rem/1 inherit; font-family: inherit;
+  cursor: pointer; white-space: nowrap;
+  transition: color .2s, border-color .2s, background-color .2s;
+}
+.ni-lang__btn:hover { color: var(--ink, var(--text, #fff)); border-color: var(--rule-strong, var(--line-strong, rgba(150, 160, 190, .45))); }
+.ni-lang__btn:focus-visible, .ni-lang__menu:focus-visible { outline: 2px solid var(--accent, #7c8cff); outline-offset: 2px; }
+.ni-lang__btn svg { flex: none; opacity: .85; }
+.ni-lang__btn .ni-caret { opacity: .6; transition: transform .2s; }
+.ni-lang__btn[aria-expanded="true"] .ni-caret { transform: rotate(180deg); }
+.ni-lang__short { display: none; font-size: .78rem; letter-spacing: .04em; }
+
+.ni-lang__menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 2;
+  min-width: 10.5rem; margin: 0; padding: 6px; list-style: none;
+  border-radius: 14px;
+  border: 1px solid var(--rule, var(--line, var(--border, rgba(150, 160, 190, .28))));
+  background: color-mix(in srgb, var(--panel, var(--surface, #111522)) 72%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .28);
+  animation: ni-pop .14s ease-out;
+}
+.ni-lang__menu[hidden] { display: none; }
+@keyframes ni-pop { from { opacity: 0; transform: translateY(-4px); } }
+
+.ni-lang__opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 9px 11px; border-radius: 9px; cursor: pointer;
+  font-size: .9rem; color: var(--ink-2, var(--text-2, var(--text-muted, var(--muted, #c4cadb))));
+}
+.ni-lang__opt.is-active { background: color-mix(in srgb, var(--ink, var(--text, #fff)) 9%, transparent); color: var(--ink, var(--text, #fff)); }
+.ni-lang__opt .ni-check { opacity: 0; color: var(--accent, #7c8cff); }
+.ni-lang__opt[aria-selected="true"] .ni-check { opacity: 1; }
+.ni-lang__opt[aria-selected="true"] { color: var(--ink, var(--text, #fff)); }
+
+@media (max-width: 520px) {
+  .ni-lang__cur { display: none; }
+  .ni-lang__short { display: inline; }
+  .ni-lang__btn { padding: 0 .55rem; gap: .35rem; }
+}
+
+@media (max-width: 420px) {
+  .ni-lang__short { display: none; }
+  .ni-lang__btn { padding: 0 .6rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ni-lang__menu { animation: none; }
+  .ni-lang__btn, .ni-lang__btn .ni-caret { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .ni-lang__btn, .ni-lang__menu { background: Canvas; border-color: CanvasText; }
+  .ni-lang__opt.is-active { outline: 2px solid Highlight; }
+}
+
+/* A site with a tight header opts in with data-compact on its slot: globe + short code, not the full name. */
+[data-nova-lang-slot][data-compact] .ni-lang__cur { display: none; }
+[data-nova-lang-slot][data-compact] .ni-lang__short { display: inline; }
+[data-nova-lang-slot][data-compact] .ni-lang__btn { padding: 0 .6rem; gap: .35rem; }
+
+@media (max-width: 420px) {
+  [data-nova-lang-slot][data-compact] .ni-lang__short { display: none; }
+}
+
+/* "Part of this page is not translated yet" - slim, above the content, never in the way. */
+.ni-notice {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem;
+  box-sizing: border-box; width: min(1100px, calc(100% - 32px)); margin: 14px auto 0; padding: .6rem .9rem;
+  border-radius: 12px;
+  border: 1px solid var(--rule, var(--line, var(--border, rgba(150, 160, 190, .28))));
+  background: color-mix(in srgb, var(--panel, var(--surface, #111522)) 70%, transparent);
+  color: var(--ink-2, var(--text-2, var(--text-muted, var(--muted, #c4cadb))));
+  font: 400 .875rem/1.45 var(--sans, var(--font-sans, system-ui, sans-serif));
+}
+.ni-notice__btn {
+  padding: .3rem .7rem; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--rule-strong, var(--line-strong, var(--border-strong, rgba(150, 160, 190, .45))));
+  background: transparent; color: var(--ink, var(--text, #fff)); font: 500 .8rem/1.2 inherit; font-family: inherit;
+}
+.ni-notice__btn:hover { background: color-mix(in srgb, var(--ink, var(--text, #fff)) 8%, transparent); }
+.ni-notice__btn:focus-visible { outline: 2px solid var(--accent, #7c8cff); outline-offset: 2px; }

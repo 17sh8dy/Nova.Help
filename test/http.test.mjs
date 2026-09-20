@@ -46,8 +46,8 @@ const formPost = (origin, url, fields, options = {}) =>
 const cookieFrom = (response) => (response.headers.get('set-cookie') ?? '').split(';')[0];
 
 const TICKET = {
-  subject: 'The globe never finishes loading',
-  description: 'It sits on the loading spinner forever on a fresh profile, on two machines.',
+  subject: 'Nova Cut never gets past the splash screen',
+  description: 'It sits on a black window and never reaches the interface, on two machines.',
   email: 'reporter@example.com',
   name: 'Sam',
   priority: 'high',
@@ -55,7 +55,7 @@ const TICKET = {
   appVersion: '1.4.0',
 };
 
-const FLOW = '/help/online-earth/globe/globe-not-loading';
+const FLOW = '/help/nova-cut/install/wont-start';
 
 /** File a ticket the way the form does, and return its id plus the pass cookie. */
 async function fileTicket(origin, overrides = {}) {
@@ -78,7 +78,7 @@ test('the homepage asks the question and lists every product', async (t) => {
 
   assert.equal(response.status, 200);
   assert.match(html, /What do you need help with\?/);
-  for (const name of ['Nova Site', 'Online Earth', 'Atlas', 'Nova Cut', 'Nova Engine', 'Replay.GG']) {
+  for (const name of ['Nova Site', 'Atlas', 'Nova Cut', 'Replay.GG']) {
     assert.ok(html.includes(name), `homepage is missing ${name}`);
   }
   // The launcher is deliberately not offered yet.
@@ -88,19 +88,19 @@ test('the homepage asks the question and lists every product', async (t) => {
 test('three clicks reach the ticket form with the selection made', async (t) => {
   const { origin } = await startServer(t);
 
-  const step1 = await call(origin, '/help/online-earth');
+  const step1 = await call(origin, '/help/nova-cut');
   assert.equal(step1.status, 200);
-  assert.match(await step1.text(), /Globe &amp; maps/);
+  assert.match(await step1.text(), /Install &amp; setup/);
 
-  const step2 = await call(origin, '/help/online-earth/globe');
+  const step2 = await call(origin, '/help/nova-cut/install');
   assert.equal(step2.status, 200);
-  assert.match(await step2.text(), /globe isn&#39;t loading/);
+  assert.match(await step2.text(), /won&#39;t start/);
 
   const step3 = await call(origin, FLOW);
   const form = await step3.text();
   assert.equal(step3.status, 200);
-  assert.match(form, /Online Earth/);
-  assert.match(form, /Globe &amp; maps/);
+  assert.match(form, /Nova Cut/);
+  assert.match(form, /Install &amp; setup/);
   assert.match(form, /enctype="multipart\/form-data"/);
 });
 
@@ -108,12 +108,12 @@ test('an issue type with articles offers them above the form', async (t) => {
   const { origin } = await startServer(t);
   const html = await call(origin, FLOW).then((r) => r.text());
   assert.match(html, /Worth trying first/);
-  assert.match(html, /WebGL/);
+  assert.match(html, /Find the logs/);
 });
 
 test('an issue type with no articles shows no suggestion panel', async (t) => {
   const { origin } = await startServer(t);
-  const html = await call(origin, '/help/online-earth/globe/search-results').then((r) => r.text());
+  const html = await call(origin, '/help/nova-cut/install/security-warning').then((r) => r.text());
   assert.equal(html.includes('Worth trying first'), false);
 });
 
@@ -141,7 +141,7 @@ test('submitting the form creates a ticket and grants access to it', async (t) =
   assert.equal(page.status, 200);
   assert.ok(html.includes(id));
   assert.match(html, /has been created/);
-  assert.match(html, /The globe never finishes loading/);
+  assert.match(html, /Nova Cut never gets past the splash screen/);
 });
 
 test('an invalid submission re-renders the form with the text still in it', async (t) => {
@@ -152,7 +152,7 @@ test('an invalid submission re-renders the form with the text still in it', asyn
   assert.equal(response.status, 422);
   assert.match(html, /Your ticket was not sent/);
   assert.match(html, /does not look like an email address/);
-  assert.ok(html.includes('It sits on the loading spinner forever'), 'description was lost');
+  assert.ok(html.includes('It sits on a black window'), 'description was lost');
 });
 
 test('a submission that fills the honeypot is refused', async (t) => {
@@ -167,7 +167,7 @@ test('a tampered priority on a pinned issue type is ignored', async (t) => {
   const { id, cookie } = await fileTicket(origin, {}, {});
 
   // File a feature request claiming urgency.
-  const response = await formPost(origin, '/help/online-earth/feedback/feature-request', {
+  const response = await formPost(origin, '/help/nova-cut/feedback/feature-request', {
     ...TICKET,
     priority: 'urgent',
   });
@@ -318,7 +318,7 @@ test('an HTML upload is refused rather than stored', async (t) => {
 
 test('markup in a subject is rendered as text, not as markup', async (t) => {
   const { origin } = await startServer(t);
-  const subject = '<img src=x onerror="alert(1)"> broken globe';
+  const subject = '<img src=x onerror="alert(1)"> broken timeline';
   const { id, cookie } = await fileTicket(origin, { subject });
 
   const html = await call(origin, `/tickets/${id}`, { headers: { cookie } }).then((r) => r.text());
@@ -363,12 +363,12 @@ test('the catalog API serves the whole tree with the policy attached', async (t)
   const { origin } = await startServer(t);
   const body = await call(origin, '/api/catalog').then((r) => r.json());
 
-  assert.equal(body.projects.length, 6);
+  assert.equal(body.projects.length, 4);
   assert.equal(body.statuses.length, 5);
   assert.equal(body.policy.autoRespond, false);
 
   const account = body.projects
-    .find((p) => p.id === 'online-earth')
+    .find((p) => p.id === 'nova-cut')
     .categories.find((c) => c.id === 'account');
   assert.equal(account.sensitive, true);
   assert.equal(account.issueTypes.every((t2) => t2.sensitive), true);
@@ -430,12 +430,12 @@ test('the API will not hand over a ticket without the filing address', async (t)
 test('resolve tells a classifier whether its guess exists and who may answer it', async (t) => {
   const { origin } = await startServer(t);
 
-  const ok = await call(origin, '/api/resolve/online-earth/account/account-security').then((r) => r.json());
+  const ok = await call(origin, '/api/resolve/nova-cut/account/account-security').then((r) => r.json());
   assert.equal(ok.issueType.sensitive, true);
   assert.equal(ok.assistant.suggest, false);
-  assert.equal(ok.formUrl, '/help/online-earth/account/account-security');
+  assert.equal(ok.formUrl, '/help/nova-cut/account/account-security');
 
-  assert.equal((await call(origin, '/api/resolve/online-earth/account/invented')).status, 404);
+  assert.equal((await call(origin, '/api/resolve/nova-cut/account/invented')).status, 404);
 });
 
 test('unknown API paths answer in JSON, not HTML', async (t) => {
@@ -447,7 +447,7 @@ test('unknown API paths answer in JSON, not HTML', async (t) => {
 
 test('a GET-only route answers 405 with Allow when posted to', async (t) => {
   const { origin } = await startServer(t);
-  const response = await formPost(origin, '/help/online-earth', {});
+  const response = await formPost(origin, '/help/nova-cut', {});
   assert.equal(response.status, 405);
   assert.equal(response.headers.get('allow'), 'GET');
 });

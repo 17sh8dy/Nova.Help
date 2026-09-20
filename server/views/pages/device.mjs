@@ -122,6 +122,56 @@ export function deviceCodePage({ code = '', error = null, account = null, done =
 }
 
 /**
+ * The second step of approving: type the code the app is showing.
+ *
+ * Reached by choosing "Connect this app". Nothing is connected until what is typed here
+ * matches, so approving takes somebody who can see the app that asked.
+ */
+export function deviceConfirmPage({ grant, code, account, error = null }) {
+  const main = `<div class="wrap narrow">
+    ${error ? notice('error', 'That code did not match.', `<p>${esc(error)}</p>`) : ''}
+    <form class="card form" method="post" action="/account/device">
+      <h2 class="card__title">${icon('cube', { size: 18 })} ${esc(grant.productName)}</h2>
+      <p class="card__body">
+        One last step. Type the eight-character code your app is showing to connect it. This
+        makes sure you are approving the app in front of you.
+      </p>
+      <input type="hidden" name="code" value="${esc(code)}" />
+      <input type="hidden" name="action" value="approve" />
+      ${textField({
+        id: 'confirm',
+        name: 'confirm',
+        label: 'Code from the app',
+        value: '',
+        placeholder: 'KDMX-7QRT',
+        hint: 'Upper or lower case, with or without the dash.',
+        required: true,
+        maxLength: 20,
+        autocomplete: 'off',
+      })}
+      <div class="form__actions">
+        ${button('Connect', { type: 'submit' })}
+        ${button('Cancel', { href: '/account/device', variant: 'ghost' })}
+      </div>
+    </form>
+  </div>`;
+
+  return page({
+    title: `Connect ${grant.productName}`,
+    description: 'Type the code from your app to connect it.',
+    path: '/account/device',
+    noindex: true,
+    account,
+    hero: hero({
+      eyebrow: 'Nova Account',
+      title: 'Enter the code',
+      lede: 'Type the code shown in the app.',
+    }),
+    main,
+  });
+}
+
+/**
  * The confirmation. Everything on this screen exists so that the decision is an informed one.
  *
  * The decision is a POST carrying the code, so approving is never something a link — or a

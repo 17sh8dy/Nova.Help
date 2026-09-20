@@ -10,7 +10,7 @@ export const site = {
   shortName: 'Nova.Help',
   tagline: 'Support for the Nova ecosystem',
   description:
-    'The support portal for Nova products — Online Earth, Atlas, Nova Cut, Nova Engine and Replay.GG. Find an answer or open a ticket with a person.',
+    'The support portal for Nova products — Atlas, Nova Cut and Replay.GG. Find an answer or open a ticket with a person.',
   origin: 'https://nova.help',
 
   /** Shown on the ticket confirmation. Keep honest: this is a target, not a guarantee. */

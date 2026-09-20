@@ -2,7 +2,7 @@ import { accountCategory, feedbackCategory, otherCategory } from '../shared.js';
 
 /** Nova Cut — the editor. Export is the category that generates the most tickets, so it leads. */
 export const project = {
-  id: 'open-cut',
+  id: 'nova-cut',
   name: 'Nova Cut',
   blurb: 'The video editor and photo editor — import, timeline, effects and export.',
   kind: 'Desktop app',
@@ -27,7 +27,7 @@ export const project = {
           label: 'It asks for FFmpeg, or export tools are missing',
           priorityMode: 'ask',
           priority: 'normal',
-          articles: ['opencut-ffmpeg'],
+          articles: ['nova-cut-ffmpeg'],
         },
         { id: 'security-warning', label: 'Windows or macOS warns about the download', priorityMode: 'ask', priority: 'low' },
       ],

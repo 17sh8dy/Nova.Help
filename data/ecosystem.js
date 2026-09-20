@@ -40,17 +40,10 @@ export const products = [
     url: null,
   },
   {
-    id: 'online-earth',
-    name: 'Online Earth',
-    blurb: 'Explore the real world, and everything connected to it.',
-    support: 'online-earth',
-    url: null,
-  },
-  {
-    id: 'open-cut',
+    id: 'nova-cut',
     name: 'Nova Cut',
     blurb: 'A video and photo editor that is free, and stays free.',
-    support: 'open-cut',
+    support: 'nova-cut',
     url: null,
   },
   {
@@ -65,13 +58,6 @@ export const products = [
     name: 'Replay.GG',
     blurb: 'Capture the moment you did not know you wanted.',
     support: 'replay-gg',
-    url: null,
-  },
-  {
-    id: 'nova-engine',
-    name: 'Nova Engine',
-    blurb: 'The engine the games are built on.',
-    support: 'nova-engine',
     url: null,
   },
 ];

@@ -40,11 +40,11 @@ async function harness() {
 }
 
 const validInput = {
-  project: 'online-earth',
-  category: 'globe',
-  issueType: 'globe-not-loading',
-  subject: 'The globe never finishes loading',
-  description: 'It sits on the loading spinner forever on a fresh profile, on two machines.',
+  project: 'nova-cut',
+  category: 'install',
+  issueType: 'wont-start',
+  subject: 'Nova Cut never gets past the splash screen',
+  description: 'It sits on a black window and never reaches the interface, on two machines.',
   email: 'Reporter@Example.com',
   name: 'Sam',
   priority: 'high',
@@ -448,8 +448,8 @@ test('summaries carry labels but never the description', async (t) => {
 
   const { ticket } = await h.tickets.create({ input: validInput, files: [] });
   const view = summarize(ticket);
-  assert.equal(view.labels.project, 'Online Earth');
-  assert.equal(view.labels.issueType, "The globe isn't loading");
+  assert.equal(view.labels.project, 'Nova Cut');
+  assert.equal(view.labels.issueType, "Nova Cut won't start");
   assert.equal(view.description, undefined);
 });
 

@@ -148,6 +148,7 @@ async function connect(origin, { product = 'open-cut', scope = 'identity sync', 
   const approved = await browser.post('/account/device', {
     code: started.json.user_code,
     action: 'approve',
+    confirm: started.json.user_code,
   });
   assert.equal(approved.status, 303, 'approving redirects');
 
@@ -191,7 +192,7 @@ test('a poll before anybody approves says "still waiting", and does not spend th
   assert.equal(pending.status, 400);
   assert.equal(pending.json.error, 'authorization_pending');
 
-  await browser.post('/account/device', { code: started.json.user_code, action: 'approve' });
+  await browser.post('/account/device', { code: started.json.user_code, action: 'approve', confirm: started.json.user_code });
 
   /* Asked again a millisecond later, so this is the impatient client rather than the patient
      one — and `slow_down` is the answer that proves the point: a grant that had been consumed
@@ -210,7 +211,7 @@ test('the code a person types is forgiving about case, spacing and the dash', as
   const started = await app.post('/api/device/code', { product: 'replay-gg' });
   const typed = started.json.user_code.toLowerCase().replace('-', ' ');
 
-  const approved = await browser.post('/account/device', { code: typed, action: 'approve' });
+  const approved = await browser.post('/account/device', { code: typed, action: 'approve', confirm: typed });
   assert.equal(approved.status, 303);
   assert.equal((await app.post('/api/device/token', { device_code: started.json.device_code })).status, 200);
 });
@@ -279,6 +280,7 @@ test('approving requires a signed-in person, and brings them back to the code', 
   const attempt = await stranger.post('/account/device', {
     code: started.json.user_code,
     action: 'approve',
+    confirm: started.json.user_code,
   });
 
   assert.equal(attempt.status, 303);
@@ -363,7 +365,7 @@ test('an app gets only the scopes its product is allowed, however it asks', asyn
   });
   assert.equal(started.json.scope, 'identity support');
 
-  await browser.post('/account/device', { code: started.json.user_code, action: 'approve' });
+  await browser.post('/account/device', { code: started.json.user_code, action: 'approve', confirm: started.json.user_code });
   const polled = await app.post('/api/device/token', { device_code: started.json.device_code });
   app.token = polled.json.access_token;
 
@@ -432,7 +434,7 @@ test('a fresh install cannot flatten an existing document by claiming it has nev
      pushes, a year of settings is either safe or gone. This is that moment. */
   const second = appClient(origin);
   const started = await second.post('/api/device/code', { product: 'open-cut', scope: 'sync' });
-  await browser.post('/account/device', { code: started.json.user_code, action: 'approve' });
+  await browser.post('/account/device', { code: started.json.user_code, action: 'approve', confirm: started.json.user_code });
   second.token = (await second.post('/api/device/token', { device_code: started.json.device_code })).json
     .access_token;
 
@@ -449,7 +451,7 @@ test('one product cannot read another product’s document', async (t) => {
 
   const atlas = appClient(origin);
   const started = await atlas.post('/api/device/code', { product: 'atlas', scope: 'sync' });
-  await browser.post('/account/device', { code: started.json.user_code, action: 'approve' });
+  await browser.post('/account/device', { code: started.json.user_code, action: 'approve', confirm: started.json.user_code });
   atlas.token = (await atlas.post('/api/device/token', { device_code: started.json.device_code })).json
     .access_token;
 
@@ -485,7 +487,7 @@ test('signing an app out does NOT delete what it synced', async (t) => {
   /* "Sign out" must never be a data-loss button. Signing back in finds the document intact. */
   const again = appClient(origin);
   const started = await again.post('/api/device/code', { product: 'open-cut', scope: 'sync' });
-  await browser.post('/account/device', { code: started.json.user_code, action: 'approve' });
+  await browser.post('/account/device', { code: started.json.user_code, action: 'approve', confirm: started.json.user_code });
   again.token = (await again.post('/api/device/token', { device_code: started.json.device_code })).json
     .access_token;
 
@@ -540,9 +542,9 @@ test('the guest path is untouched by any of this', async (t) => {
 
   /* And a guest can still file a ticket without an account, which is the promise the whole
      feature is written around. */
-  const filed = await browser.post('/help/online-earth/globe/globe-not-loading', {
-    subject: 'The globe never finishes loading',
-    description: 'It sits on the loading spinner forever on a fresh profile, on two machines.',
+  const filed = await browser.post('/help/nova-cut/install/wont-start', {
+    subject: 'Nova Cut never gets past the splash screen',
+    description: 'It sits on a black window and never reaches the interface, on two machines.',
     email: 'guest@example.com',
     name: 'A guest',
     priority: 'high',
@@ -621,4 +623,35 @@ test('the account PAGES stay same-origin, cookie-only', async (t) => {
     });
     assert.equal(response.headers.get('access-control-allow-origin'), null, path);
   }
+});
+
+/* ── Approving needs the code typed back ───────────────────────────────────────────────── */
+
+test('connecting an app needs the app code typed in, not just a click', async (t) => {
+  const { origin } = await startServer(t);
+  const app = appClient(origin);
+  const browser = browserClient(origin);
+  await signUp(browser);
+
+  const started = await app.post('/api/device/code', { product: 'open-cut', scope: 'identity' });
+  const code = started.json.user_code;
+
+  // The click alone: asks for the code, connects nothing.
+  const clicked = await browser.post('/account/device', { code, action: 'approve' });
+  assert.equal(clicked.status, 200);
+  assert.match(await clicked.text(), /Code from the app/);
+
+  // A wrong code: refused.
+  const wrong = await browser.post('/account/device', { code, action: 'approve', confirm: 'AAAA-AAAA' });
+  assert.equal(wrong.status, 400);
+
+  const pending = await app.post('/api/device/token', { device_code: started.json.device_code });
+  assert.equal(pending.status, 400, 'still not connected');
+  assert.equal(pending.json.error, 'authorization_pending');
+
+  // The right code, in any case and with or without the dash: connected. (No second poll —
+  // the five-second pacing would answer slow_down — so the redirect is the proof.)
+  const typed = code.toLowerCase().replace('-', '');
+  const done = await browser.post('/account/device', { code, action: 'approve', confirm: typed });
+  assert.equal(done.status, 303);
 });
