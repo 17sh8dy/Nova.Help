@@ -69,6 +69,7 @@ export {
 } from './deviceCodes.mjs';
 export { scopedView };
 export { SYNC_DOCUMENT_LIMIT, encodeSyncDocument, decodeSyncDocument } from './syncDocuments.mjs';
+export { AVATAR_LIMITS, AVATAR_TYPES, validateAvatar, sniffImage, newAvatarKey, avatarPrefix, isAvatarKeyFor } from './avatars.mjs';
 
 /** Derive the account-session key from the application secret. Domain-separated, one-way. */
 export const deriveSessionSecret = (secret) =>

@@ -881,6 +881,104 @@ export function createD1AccountStore({ db, retries = 5 }) {
       return removal.meta.changes === 1 ? { ok: true } : { ok: false, reason: 'nothing-stored' };
     },
 
+    /**
+     * Move the account to a new address, unverified. `{ ok: true, account }` or
+     * `{ ok: false, reason }` -- `email-taken` is what the UNIQUE index says when another account
+     * got there first, which the service's own check can lose to by a moment.
+     */
+    async changeEmail(accountId, newEmail, { now = new Date() } = {}) {
+      try {
+        const account = await this.update(accountId, (doc) => {
+          doc.email = newEmail;
+          doc.emailVerified = false;
+          doc.updatedAt = now.toISOString();
+          return doc;
+        });
+        return account ? { ok: true, account } : { ok: false, reason: 'no-such-account' };
+      } catch (error) {
+        // `update` reports a lost uniqueness race as `update(<id>) failed: email-taken`.
+        if (/failed: email-taken/.test(String(error?.message))) {
+          return { ok: false, reason: 'email-taken' };
+        }
+        throw error;
+      }
+    },
+
+    /* ── Profile pictures ───────────────────────────────────────────────────────────────
+     *
+     * A row is a REFERENCE to an object in R2 -- never the image. Kept in its own table so the
+     * `accounts` row Nova.Help reads is untouched. See migrations/0001_account_avatars.sql.
+     */
+
+    /** `{ objectKey, contentType, size, updatedAt }` or null. */
+    async getAvatar(accountId) {
+      let row;
+      try {
+        row = await db
+          .prepare('SELECT object_key, content_type, size, updated_at FROM account_avatars WHERE account_id = ?')
+          .bind(accountId)
+          .first();
+      } catch (error) {
+        /* Deployed before migrations/0001 has been applied: there is no table, so nobody has a
+           picture. Reading that as "no picture" keeps the account page and account deletion
+           working in that window; WRITING a picture without the table still fails loudly. */
+        if (/no such table/i.test(String(error?.message))) return null;
+        throw error;
+      }
+      return row
+        ? { objectKey: row.object_key, contentType: row.content_type, size: row.size, updatedAt: row.updated_at }
+        : null;
+    },
+
+    /** Point the account at a new picture. Returns the reference it replaced, or null. */
+    async putAvatar(accountId, { objectKey, contentType, size, updatedAt }) {
+      const previous = await this.getAvatar(accountId);
+      await db
+        .prepare(
+          `INSERT INTO account_avatars (account_id, object_key, content_type, size, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (account_id) DO UPDATE SET
+             object_key = excluded.object_key, content_type = excluded.content_type,
+             size = excluded.size, updated_at = excluded.updated_at`,
+        )
+        .bind(accountId, objectKey, contentType, size, updatedAt)
+        .run();
+      return previous;
+    },
+
+    /** Forget the picture. Returns the reference that was removed, or null. */
+    async deleteAvatar(accountId) {
+      const previous = await this.getAvatar(accountId);
+      if (previous) await db.prepare('DELETE FROM account_avatars WHERE account_id = ?').bind(accountId).run();
+      return previous;
+    },
+
+    /* ── Deleting an account ────────────────────────────────────────────────────────────
+     *
+     * Every table that hangs off `accounts` -- sessions, identities, products, resets, device
+     * grants, sync documents, avatars -- is ON DELETE CASCADE, so removing the one row removes
+     * them all. That is one atomic statement rather than a list this method has to keep in step
+     * with the schema.
+     *
+     * `beforeDelete(db)` may return more PREPARED statements, which run in the SAME batch and
+     * so the same transaction, ahead of the delete. It exists so a caller that shares this
+     * database (Nova.Help's tickets) can do its own cleanup atomically with the account going:
+     * either the tickets are anonymised and the account is gone, or nothing happened. This
+     * package does not know what those statements are.
+     */
+    async deleteAccount(accountId, { beforeDelete = null } = {}) {
+      const extra = beforeDelete ? await beforeDelete(db) : [];
+      const results = await db.batch([
+        ...extra,
+        db.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId),
+      ]);
+      /* `> 0`, NOT `=== 1`. Real D1 counts the rows removed by ON DELETE CASCADE in `changes`
+         (the sessions, products, avatar...), so a successful delete reports more than one. The
+         local SQLite driver counts only the direct row, which is why a test cannot tell the
+         two apart -- this was found by running against wrangler's real Workers runtime. */
+      return results.at(-1).meta.changes > 0;
+    },
+
     async has(id) {
       return Boolean(await db.prepare('SELECT 1 AS ok FROM accounts WHERE id = ?').bind(id).first('ok'));
     },

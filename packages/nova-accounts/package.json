@@ -22,12 +22,14 @@
     "./productTokens.mjs": "./productTokens.mjs",
     "./deviceCodes.mjs": "./deviceCodes.mjs",
     "./deviceService.mjs": "./deviceService.mjs",
-    "./syncDocuments.mjs": "./syncDocuments.mjs"
+    "./syncDocuments.mjs": "./syncDocuments.mjs",
+    "./avatars.mjs": "./avatars.mjs"
   },
   "files": [
     "*.mjs",
     "providers/*.mjs",
-    "schema.sql"
+    "schema.sql",
+    "migrations/*.sql"
   ],
   "engines": {
     "node": ">=20"

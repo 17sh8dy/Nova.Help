@@ -703,6 +703,85 @@ export function createAccountStore({ dir }) {
       });
     },
 
+    /**
+     * Move the account to a new address, unverified. `update()` may not claim an indexed value,
+     * so this takes the OLD and the NEW address keys together, as `create` does.
+     */
+    async changeEmail(accountId, newEmail, { now = new Date() } = {}) {
+      const start = accounts.get(accountId);
+      if (!start) return { ok: false, reason: 'no-such-account' };
+      const newKey = normalizeEmail(newEmail);
+      const keys = [`id:${accountId}`, `email:${normalizeEmail(start.email)}`, `email:${newKey}`];
+      return withLocks(keys, async () => {
+        const current = accounts.get(accountId);
+        if (!current) return { ok: false, reason: 'no-such-account' };
+        const holder = byEmail.get(newKey);
+        if (holder && holder !== accountId) return { ok: false, reason: 'email-taken' };
+        const next = { ...structuredClone(current), email: newEmail, emailVerified: false, updatedAt: now.toISOString() };
+        await persist(next);
+        byEmail.delete(normalizeEmail(current.email));
+        index(next);
+        return { ok: true, account: structuredClone(next) };
+      });
+    },
+
+    /* ── Profile pictures ───────────────────────────────────────────────────────────────
+     * Held on the account document as `avatar`, a reference only -- the image is in object
+     * storage. `publicView` never copies it, and the D1 store keeps the same reference in its
+     * own table. */
+    async getAvatar(accountId) {
+      return structuredClone(accounts.get(accountId)?.avatar ?? null);
+    },
+
+    async putAvatar(accountId, reference) {
+      let previous = null;
+      const updated = await this.update(accountId, (doc) => {
+        previous = doc.avatar ?? null;
+        doc.avatar = { ...reference };
+        return doc;
+      });
+      return updated ? previous : null;
+    },
+
+    async deleteAvatar(accountId) {
+      let previous = null;
+      await this.update(accountId, (doc) => {
+        previous = doc.avatar ?? null;
+        delete doc.avatar;
+        return doc;
+      });
+      return previous;
+    },
+
+    /**
+     * Remove an account and everything held about it: the document, both indexes, and its sync
+     * file. `beforeDelete` is accepted for parity with the D1 store and ignored -- this store has
+     * no tickets to tidy, and is only used for local development.
+     */
+    async deleteAccount(accountId) {
+      const account = accounts.get(accountId);
+      if (!account) return false;
+      const keys = [
+        `id:${accountId}`,
+        `email:${normalizeEmail(account.email)}`,
+        ...(account.identities ?? []).map((i) => `identity:${identityKey(i.provider, i.subject)}`),
+        `sync:${accountId}`,
+      ];
+      return withLocks(keys, async () => {
+        const current = accounts.get(accountId);
+        if (!current) return false;
+        await unlink(fileFor(accountId));
+        await persistSync(accountId, {});
+        accounts.delete(accountId);
+        syncDocuments.delete(accountId);
+        byEmail.delete(normalizeEmail(current.email));
+        for (const identity of current.identities ?? []) {
+          byIdentity.delete(identityKey(identity.provider, identity.subject));
+        }
+        return true;
+      });
+    },
+
     /** True when this id exists. Used by id generation. */
     async has(id) {
       return accounts.has(id);

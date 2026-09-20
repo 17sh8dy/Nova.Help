@@ -36,7 +36,8 @@
  * down in docs/NOVA-ACCOUNTS.md so it cannot be quietly dropped when mail is added.
  */
 import { hashPassword, needsRehash, verifyDummy, verifyPassword, DEFAULT_COST } from './passwords.mjs';
-import { normalizeEmail as normalize } from './validation.mjs';
+import { normalizeEmail as normalize, validateEmailChange, validateProfile } from './validation.mjs';
+import { AVATAR_TYPES, isAvatarKeyFor } from './avatars.mjs';
 import { newAccountId, newSessionId } from './ids.mjs';
 import {
   normalizeEmail,
@@ -46,7 +47,12 @@ import {
   validateSignIn,
 } from './validation.mjs';
 import { SESSION_TTL_SECONDS } from './sessions.mjs';
-import { passwordChangedMessage, passwordResetMessage } from './mail.mjs';
+import {
+  accountDeletedMessage,
+  emailChangedMessage,
+  passwordChangedMessage,
+  passwordResetMessage,
+} from './mail.mjs';
 
 const SCHEMA_VERSION = 1;
 
@@ -101,6 +107,20 @@ export function createAccountService({
     }
     throw new Error('Could not allocate a unique account id.');
   }
+
+  /** True only for a real, present password that matches. A missing one is the same as a wrong one. */
+  const passwordIsRight = async (account, password) =>
+    typeof account?.password === 'string' &&
+    account.password.length > 0 &&
+    typeof password === 'string' &&
+    password.length > 0 &&
+    verifyPassword(password, account.password);
+
+  const wrongPassword = {
+    ok: false,
+    reason: 'wrong-password',
+    errors: { currentPassword: 'That is not your current password.' },
+  };
 
   /** Drop lapsed sessions and keep the newest few. Called on every write that touches them. */
   const prune = (sessions = []) => {
@@ -629,6 +649,216 @@ export function createAccountService({
       }
 
       return { ok: true, account: publicView(redeemed.account) };
+    },
+
+    /* ── Managing an account ────────────────────────────────────────────────────────────
+     *
+     * These are what the Nova site's account pages call. The rules that hold for all of them:
+     *
+     *   - THE CALLER SAYS WHO. Every method takes an account id the route got from the session
+     *     cookie; nothing here reads an identity out of the request body.
+     *   - A CHANGE THAT COULD LOCK THE OWNER OUT OR HAND THE ACCOUNT TO SOMEBODY ELSE ASKS FOR
+     *     THE CURRENT PASSWORD AGAIN. A stolen session cookie alone is not enough to change the
+     *     address, the password, or to delete the account. An account with no password (one made
+     *     by a provider) cannot use these; it has to set one through the reset flow first.
+     *   - FAILURES ARE SPECIFIC ONLY WHERE THE CALLER IS ALREADY AUTHENTICATED. A wrong current
+     *     password here says so, because the person has proved who they are by session; the
+     *     one-answer rule is for sign-in, where they have not.
+     *   - THE OTHER PARTIES ARE TOLD. An address change mails the OLD address; a password change
+     *     and a deletion mail the address on the account. Best-effort: a mail transport that is
+     *     down does not undo a change that has happened.
+     */
+
+    /** Change the display name. */
+    async updateProfile(accountId, input = {}) {
+      const validated = validateProfile(input);
+      if (!validated.ok) return { ok: false, reason: 'invalid', errors: validated.errors, values: validated.values };
+
+      const updated = await store.update(accountId, (doc) => {
+        doc.displayName = validated.values.displayName || null;
+        doc.updatedAt = new Date().toISOString();
+        return doc;
+      });
+      if (!updated) return { ok: false, reason: 'no-such-account' };
+      return { ok: true, account: publicView(updated) };
+    },
+
+    /**
+     * Change the password. Needs the current one. Every other session -- web, and every product
+     * that signed in by device -- is signed out, and the kept session is the one that asked.
+     */
+    async changePassword(accountId, input = {}, { keepToken = null, now = new Date() } = {}) {
+      const account = await store.get(accountId);
+      if (!account || account.status !== 'active') return { ok: false, reason: 'no-such-account' };
+      if (typeof account.password !== 'string' || !account.password) return { ok: false, reason: 'no-password' };
+
+      if (!(await passwordIsRight(account, input.currentPassword))) return wrongPassword;
+
+      const validated = validatePasswordReset(input, { email: account.email });
+      if (!validated.ok) return { ok: false, reason: 'invalid', errors: validated.errors };
+      if (validated.password === input.currentPassword) {
+        return { ok: false, reason: 'invalid', errors: { password: 'Choose a password you are not already using.' } };
+      }
+
+      const hashed = await hashPassword(validated.password, { cost });
+      const keepId = keepToken ? tokens.verify(keepToken)?.sessionId : null;
+      await store.update(accountId, (doc) => {
+        doc.password = hashed;
+        doc.sessions = prune(doc.sessions).filter((session) => keepId && session.id === keepId);
+        doc.updatedAt = now.toISOString();
+        return doc;
+      });
+      // A reset link somebody was sent for the OLD password must not outlive it.
+      await store.clearPasswordReset(accountId).catch(() => {});
+
+      try {
+        await mailer.send(passwordChangedMessage({ to: account.email, at: now.toISOString(), productName, supportUrl }));
+      } catch (error) {
+        logger.error?.('[nova.accounts] password changed notification failed', error);
+      }
+      return { ok: true };
+    },
+
+    /** Change the address. Needs the current password. The new address starts unverified. */
+    async changeEmail(accountId, input = {}, { now = new Date() } = {}) {
+      const account = await store.get(accountId);
+      if (!account || account.status !== 'active') return { ok: false, reason: 'no-such-account' };
+      if (typeof account.password !== 'string' || !account.password) return { ok: false, reason: 'no-password' };
+
+      if (!(await passwordIsRight(account, input.currentPassword))) return wrongPassword;
+      const validated = validateEmailChange(input, { currentEmail: account.email });
+      if (!validated.ok) return { ok: false, reason: 'invalid', errors: validated.errors, values: validated.values };
+
+      const taken = {
+        ok: false,
+        reason: 'email-taken',
+        errors: { newEmail: 'That address is already used by another Nova Account.' },
+        values: validated.values,
+      };
+      if (await store.emailTaken(validated.values.newEmail)) return taken;
+
+      const changed = await store.changeEmail(accountId, validated.values.newEmail, { now });
+      if (!changed.ok) return changed.reason === 'email-taken' ? taken : { ok: false, reason: changed.reason };
+
+      try {
+        await mailer.send(
+          emailChangedMessage({
+            to: account.email,
+            newEmail: validated.values.newEmail,
+            at: now.toISOString(),
+            productName,
+            supportUrl,
+          }),
+        );
+      } catch (error) {
+        logger.error?.('[nova.accounts] email changed notification failed', error);
+      }
+      return { ok: true, account: publicView(changed.account) };
+    },
+
+    /**
+     * The sign-ins on an account, for a security page: when, for which product, and whether it
+     * is the one asking. Never a token; the session id is only ever compared, not a credential.
+     */
+    async listSessions(accountId, { currentToken = null } = {}) {
+      const account = await store.get(accountId);
+      if (!account) return [];
+      const currentId = currentToken ? tokens.verify(currentToken)?.sessionId : null;
+      return prune(account.sessions).map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        product: session.product ?? null,
+        kind: session.kind ?? 'web',
+        label: session.label ?? null,
+        current: session.id === currentId,
+      }));
+    },
+
+    /** Sign out everything except the session that asked. Returns how many were ended. */
+    async signOutOthers(accountId, { keepToken = null } = {}) {
+      const keepId = keepToken ? tokens.verify(keepToken)?.sessionId : null;
+      let ended = 0;
+      await store.update(accountId, (doc) => {
+        const live = prune(doc.sessions);
+        doc.sessions = live.filter((session) => keepId && session.id === keepId);
+        ended = live.length - doc.sessions.length;
+        doc.updatedAt = new Date().toISOString();
+        return doc;
+      });
+      return ended;
+    },
+
+    /** End one named session, but never the one asking (that is `signOut`). */
+    async revokeSession(accountId, sessionId, { keepToken = null } = {}) {
+      const keepId = keepToken ? tokens.verify(keepToken)?.sessionId : null;
+      if (!sessionId || sessionId === keepId) return false;
+      let removed = false;
+      await store.update(accountId, (doc) => {
+        const before = prune(doc.sessions);
+        doc.sessions = before.filter((session) => session.id !== sessionId);
+        removed = doc.sessions.length < before.length;
+        doc.updatedAt = new Date().toISOString();
+        return doc;
+      });
+      return removed;
+    },
+
+    /**
+     * Delete the account. IRREVERSIBLE, so it asks for the current password AND the address typed
+     * out. Returns the picture reference (if any) so the caller can delete the object; the row
+     * itself goes with the account.
+     *
+     * `beforeDelete(db)` is handed to the store and runs in the same transaction; see the D1
+     * store. It is how Nova.Help's tickets are anonymised atomically with the account going.
+     */
+    async deleteAccount(accountId, input = {}, { beforeDelete = null, now = new Date() } = {}) {
+      const account = await store.get(accountId);
+      if (!account || account.status !== 'active') return { ok: false, reason: 'no-such-account' };
+      if (typeof account.password !== 'string' || !account.password) return { ok: false, reason: 'no-password' };
+
+      if (!(await passwordIsRight(account, input.currentPassword))) return wrongPassword;
+      if (normalize(input.confirmEmail) !== normalize(account.email)) {
+        return {
+          ok: false,
+          reason: 'not-confirmed',
+          errors: { confirmEmail: 'Type the email address on this account exactly, to confirm.' },
+        };
+      }
+
+      const avatar = await store.getAvatar(accountId);
+      const gone = await store.deleteAccount(accountId, { beforeDelete });
+      if (!gone) return { ok: false, reason: 'no-such-account' };
+
+      try {
+        await mailer.send(accountDeletedMessage({ to: account.email, at: now.toISOString(), productName, supportUrl }));
+      } catch (error) {
+        logger.error?.('[nova.accounts] account deleted notification failed', error);
+      }
+      return { ok: true, avatar };
+    },
+
+    /** The reference to the picture, or null. */
+    async getAvatar(accountId) {
+      return store.getAvatar(accountId);
+    },
+
+    /**
+     * Record a new picture and return the reference it replaced (so the caller can delete that
+     * object). Refuses a reference this package did not make for this account.
+     */
+    async setAvatar(accountId, { objectKey, contentType, size }, { now = new Date() } = {}) {
+      if (!isAvatarKeyFor(accountId, objectKey) || !Object.values(AVATAR_TYPES).includes(contentType)) {
+        return { ok: false, reason: 'invalid' };
+      }
+      if (!(await store.has(accountId))) return { ok: false, reason: 'no-such-account' };
+      const previous = await store.putAvatar(accountId, { objectKey, contentType, size, updatedAt: now.toISOString() });
+      return { ok: true, previous };
+    },
+
+    /** Remove the picture reference. Returns the reference removed, for the caller to delete. */
+    async clearAvatar(accountId) {
+      return store.deleteAvatar(accountId);
     },
 
     /** A public view by id, or null. Nothing here ever returns the stored document. */

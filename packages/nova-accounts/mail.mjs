@@ -131,3 +131,32 @@ export const passwordChangedMessage = ({ to, at, productName = 'Nova', supportUr
     ...(supportUrl ? ['', `Get help: ${supportUrl}`] : []),
   ].join('\n'),
 });
+
+/** Sent to the OLD address after it is replaced, so an account takeover cannot be silent. */
+export const emailChangedMessage = ({ to, newEmail, at, productName = 'Nova', supportUrl = null }) => ({
+  to,
+  subject: `The email address on your ${productName} Account was changed`,
+  text: [
+    `The email address on your ${productName} Account was changed on ${at}.`,
+    `It is now ${newEmail}. This address no longer receives mail for the account.`,
+    '',
+    'If this was you, there is nothing to do.',
+    '',
+    'If it was NOT you, somebody has your password. Reset it straight away and secure this mailbox.',
+    ...(supportUrl ? ['', `Get help: ${supportUrl}`] : []),
+  ].join('\n'),
+});
+
+/** Sent after an account is deleted. The last message an address will get. */
+export const accountDeletedMessage = ({ to, at, productName = 'Nova', supportUrl = null }) => ({
+  to,
+  subject: `Your ${productName} Account was deleted`,
+  text: [
+    `The ${productName} Account at ${to} was deleted on ${at}, on every Nova product.`,
+    '',
+    'If this was you, there is nothing more to do.',
+    '',
+    'If it was NOT you, somebody had your password. There is no way to undo a deletion.',
+    ...(supportUrl ? ['', `Get help: ${supportUrl}`] : []),
+  ].join('\n'),
+});

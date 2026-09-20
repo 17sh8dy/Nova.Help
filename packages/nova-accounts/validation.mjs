@@ -143,3 +143,27 @@ export function validateSignIn(input = {}) {
 
   return { ok: Object.keys(errors).length === 0, values, errors, password };
 }
+
+/**
+ * Validate a change to the profile: today only the name.
+ *
+ * An empty name is allowed and means "no name" -- the masthead falls back to the address.
+ */
+export function validateProfile(input = {}) {
+  const errors = {};
+  const values = { displayName: collapse(input.displayName) };
+  if (values.displayName.length > ACCOUNT_LIMITS.displayName.max) {
+    errors.displayName = `Please keep it under ${ACCOUNT_LIMITS.displayName.max} characters.`;
+  }
+  return { ok: Object.keys(errors).length === 0, values, errors };
+}
+
+/** Validate the new address in an address change. Whether it is taken is the service's call. */
+export function validateEmailChange(input = {}, { currentEmail = '' } = {}) {
+  const errors = {};
+  const values = { newEmail: normalizeEmail(input.newEmail) };
+  if (!values.newEmail) errors.newEmail = 'Enter the new email address.';
+  else if (!isEmail(values.newEmail)) errors.newEmail = 'That does not look like an email address.';
+  else if (values.newEmail === normalizeEmail(currentEmail)) errors.newEmail = 'That is already the address on this account.';
+  return { ok: Object.keys(errors).length === 0, values, errors };
+}
