@@ -71,6 +71,19 @@ following are open, and should stay open until a second product actually needs t
 
 Guessing at the rest now means being stuck with the guess.
 
+### Roadmap note (Brandon, 2026-09-23) — do not implement, this is a standing constraint
+
+**A user should never have to separately "connect" every app or site to get an account that
+already works everywhere.** Once someone makes one Nova Account, it should reach every current
+and future Nova product with no per-app account of its own — this is already rules 1, 3, 4 and
+5 above, restated here as an explicit guardrail so it does not quietly erode as new products
+(Atlas Website, NovaLegal, and whatever comes after them) get wired up. **This is not the same
+claim as "no approval step ever"**: the device-authorization grant's one-time "type the code
+shown on this device" approval (§ above, RFC 8628) is a deliberate security proof that a new
+device is really the person's, not friction to remove — see the Code Slots work on the device
+page. What must never happen is a *second account* for a product, or a product inventing its
+own sign-in instead of extending this one.
+
 ---
 
 ## 2. Where the code is
