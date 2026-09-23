@@ -363,7 +363,7 @@ test('the catalog API serves the whole tree with the policy attached', async (t)
   const { origin } = await startServer(t);
   const body = await call(origin, '/api/catalog').then((r) => r.json());
 
-  assert.equal(body.projects.length, 4);
+  assert.equal(body.projects.length, 6);
   assert.equal(body.statuses.length, 5);
   assert.equal(body.policy.autoRespond, false);
 

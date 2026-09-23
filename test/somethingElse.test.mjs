@@ -57,7 +57,7 @@ test('every category in every product ends with "Something else"', () => {
       assert.equal(category.issueTypes.filter((t) => t.catchAll).length, 1);
     }
   }
-  assert.equal(categories, 27, 'the catalog should still have 27 categories');
+  assert.equal(categories, 32, 'the catalog should still have 32 categories');
   assert.equal(catalog.stats.catchAll, categories);
 });
 
