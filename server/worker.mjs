@@ -13,6 +13,9 @@
  *   env.NOVA_HELP_SECRET  the application signing key — a secret, not a var
  *   env.NOVA_HELP_ORIGIN  public origin, for building OAuth redirect URIs
  *   env.NOVA_GOOGLE_CLIENT_ID / env.NOVA_GOOGLE_SECRET   optional; both or neither
+ *   env.RESEND_API_KEY    optional; real mail (password reset, new-ticket notifications) once set
+ *   env.RESEND_FROM       optional; defaults to Resend's shared onboarding@resend.dev
+ *   env.NOVA_HELP_SUPPORT_EMAIL   optional; where new-ticket notifications go, default getnovasupport@gmail.com
  *
  * WHY THE APP IS BUILT PER ISOLATE AND NOT PER REQUEST. Constructing it validates the catalog
  * and builds the router, which is work that does not depend on the request. It is cached in a
@@ -41,6 +44,7 @@ import { createD1TicketStore } from './store/d1Store.mjs';
 import { createD1AccountStore } from '@nova/accounts/d1Store';
 import { createR2AttachmentStore } from './store/r2Attachments.mjs';
 import { createDurableRateLimiter } from './lib/doRateLimit.mjs';
+import { createResendMailer } from './mail/resendMailer.mjs';
 
 /* Wrangler needs the Durable Object class exported from the entry point to bind it. */
 export { RateLimiterObject } from './rateLimiterObject.mjs';
@@ -211,12 +215,14 @@ function build(env) {
     secureCookies: true,
     origin: env.NOVA_HELP_ORIGIN ?? null,
     signingSecret: env.NOVA_HELP_SECRET,
-    /* No `mailer` binding is wired here: node:net/node:tls (server/mail/smtpMailer.mjs) are not
-       available inside a Worker isolate the way they are under plain Node, and this deployment
-       has no custom domain yet for Cloudflare Email Sending either (see wrangler.jsonc's own
-       note on that). Both password reset and new-ticket notifications therefore send nothing in
-       production today — same as before this change — until one of those is set up. Configurable
-       regardless, so setting NOVA_HELP_SUPPORT_EMAIL doesn't require a code change once mail is. */
+    /* node:net/node:tls (server/mail/smtpMailer.mjs) are not available inside a Worker isolate
+       the way they are under plain Node, and this deployment has no custom domain yet for
+       Cloudflare Email Sending either (see wrangler.jsonc's own note on that) — so the Worker
+       transport is Resend, an HTTP API, over `fetch` (server/mail/resendMailer.mjs). Built only
+       when RESEND_API_KEY is actually set, so an unconfigured deployment fails the same safe,
+       loud way it always has (createNullMailer, via app.mjs's `mailer ?? null`) rather than a
+       half-built transport throwing on the first real send. */
+    ...(env.RESEND_API_KEY ? { mailer: createResendMailer({ apiKey: env.RESEND_API_KEY, from: env.RESEND_FROM }) } : {}),
     ...(env.NOVA_HELP_SUPPORT_EMAIL ? { supportNotifyEmail: env.NOVA_HELP_SUPPORT_EMAIL } : {}),
     stores: {
       tickets: createD1TicketStore({ db: env.DB }),
