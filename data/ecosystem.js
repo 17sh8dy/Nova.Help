@@ -40,6 +40,13 @@ export const products = [
     url: null,
   },
   {
+    id: 'nova-legal',
+    name: 'Nova Legal',
+    blurb: 'Terms, privacy and product-specific legal documents for the Nova ecosystem.',
+    support: 'nova-legal',
+    url: 'https://nova-legal.shadylabs.workers.dev/',
+  },
+  {
     id: 'nova-cut',
     name: 'Nova Cut',
     blurb: 'A video and photo editor that is free, and stays free.',
@@ -52,6 +59,13 @@ export const products = [
     blurb: 'A desktop assistant that runs on your machine.',
     support: 'atlas',
     url: null,
+  },
+  {
+    id: 'atlas-website',
+    name: 'Atlas Website',
+    blurb: "Atlas's own site — features, downloads and documentation.",
+    support: 'atlas-website',
+    url: 'https://atlas-website.shadylabs.workers.dev/',
   },
   {
     id: 'replay-gg',
