@@ -449,6 +449,20 @@ code {
   color: var(--brand-bright);
 }
 
+/* A real product logo carries its own background and colours (see brandmarks.mjs), so it does
+   not also want the tinted wash and border built for a monochrome glyph — that would frame it
+   in a second, mismatched background rather than let its own artwork read as the mark. */
+.product__icon--logo {
+  background: none;
+  border: none;
+}
+
+.product__icon--logo .brand-mark {
+  width: 2rem;
+  height: 2rem;
+  border-radius: calc(var(--r-md) - 2px);
+}
+
 .product__head {
   display: flex;
   flex-wrap: wrap;

@@ -12,11 +12,24 @@ import { projects } from '../../core/catalog.mjs';
 import { site } from '../../../data/site.js';
 import { page, hero } from '../layout.mjs';
 import { esc, escUrl, icon, button } from '../components.mjs';
+import { brandMark } from '../brandmarks.mjs';
+
+/**
+ * A project's own logo when it has one, otherwise the named glyph from `icon()`. `logo` and
+ * `icon` are separate fields (see data/projects/*.js) because they resolve against two
+ * different renderers with two different colour models — see brandmarks.mjs.
+ */
+function projectMark(project) {
+  const real = project.logo ? brandMark(project.logo, { size: 24 }) : null;
+  if (real) return { markup: real, isLogo: true };
+  return { markup: icon(project.icon ?? 'dot', { size: 24 }), isLogo: false };
+}
 
 function projectCard(project) {
   const issueCount = project.categories.reduce((n, c) => n + c.issueTypes.length, 0);
+  const mark = projectMark(project);
   return `<a class="product" href="/help/${escUrl(project.id)}">
-    <span class="product__icon">${icon(project.icon ?? 'dot', { size: 24 })}</span>
+    <span class="product__icon${mark.isLogo ? ' product__icon--logo' : ''}">${mark.markup}</span>
     <span class="product__body">
       <span class="product__head">
         <span class="product__name">${esc(project.name)}</span>
