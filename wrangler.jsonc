@@ -4,7 +4,9 @@
   // DEPLOYED 2026-09-10, on the free workers.dev subdomain — no custom domain, on purpose:
   // Brandon isn't buying nova.help (or any domain) for this right now, so Cloudflare's free
   // "random" URL is the real answer, not a placeholder for one. Live at
-  // https://nova-help.17sh8dy.workers.dev. The real R2 bucket and D1 database exist and the
+  // https://nova-help.shadylabs.workers.dev (the account's workers.dev subdomain is "shadylabs",
+  // not "17sh8dy" — fixed 2026-09-23 after this comment and NOVA_HELP_ORIGIN both drifted from
+  // it). The real R2 bucket and D1 database exist and the
   // schema is applied (2026-09-03) — verified by filing a real ticket with an attachment
   // against them directly and reading both the D1 row and the R2 object back — and
   // NOVA_HELP_SECRET is a real secret on the account (`wrangler secret list` confirms it, set
@@ -92,7 +94,7 @@
     // NOVA_HELP_SECRET. Editing this value by hand before every deploy and reverting it after
     // was the alternative, and it is exactly the kind of manual step that regresses production
     // the day someone forgets it.
-    "NOVA_HELP_ORIGIN": "https://nova-help.17sh8dy.workers.dev"
+    "NOVA_HELP_ORIGIN": "https://nova-help.shadylabs.workers.dev"
   }
 
   // NOVA_HELP_SECRET, NOVA_GOOGLE_CLIENT_ID and NOVA_GOOGLE_SECRET are secrets, never vars.
