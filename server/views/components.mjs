@@ -204,6 +204,76 @@ export function textArea({ id, name, label, value = '', hint, error, required, r
   });
 }
 
+/**
+ * Code Slots — a device/one-time code entered as a row of boxes, backed by ONE real input.
+ *
+ * This is a vanilla reimplementation of React Bits' "Code Slots" pattern (reactbits.dev),
+ * built around a single accessible `<input>` rather than one element per character. That
+ * choice is deliberate, not a shortcut:
+ *
+ * - A screen reader announces ONE labelled field, exactly as it would a plain text input.
+ *   The boxes are `aria-hidden` and decorative only — nothing about what the code IS is
+ *   conveyed through them alone, which is what a purely visual per-slot design would risk.
+ * - Native paste, backspace and caret movement all still work, because they are still one
+ *   text field doing what a text field always does. Splitting a paste across N inputs, and
+ *   moving focus between them on backspace, is where most OTP-input widgets grow bugs; this
+ *   design has no such logic to get wrong.
+ * - The value that reaches the server is `input.value`, unmodified — the same thing a plain
+ *   `<input>` would have submitted. Nothing here performs or implies a correctness check.
+ *
+ * With JavaScript blocked or absent, `.code-slots__display` never leaves `display: none`
+ * (see help.css) and this renders and behaves as an ordinary text field — the box row and
+ * its animations are `public/assets/help.js`'s doing, entirely optional.
+ *
+ * `length`/`groupSize` are the "configurable slot numbers" from the reference pattern; a
+ * group boundary is drawn as a gap between slots rather than a literal dash character, so
+ * the boxes stay one flat, easily-styled row (see help.css's `nth-last-child` stagger).
+ */
+export function codeSlots({
+  id,
+  name,
+  label,
+  hint,
+  value = '',
+  required = false,
+  autocomplete,
+  placeholder,
+  length = 8,
+  groupSize = 4,
+  error = false,
+}) {
+  const describedBy = hint ? `${id}-hint` : null;
+  const slots = Array.from({ length }, (_, index) => {
+    const groupEnd = groupSize > 0 && (index + 1) % groupSize === 0 && index + 1 !== length;
+    return `<span class="${classes('code-slots__slot', groupEnd && 'code-slots__slot--group-end')}" data-slot-index="${index}" aria-hidden="true"></span>`;
+  }).join('');
+
+  return `<div class="field">
+    <label class="field__label" for="${esc(id)}">
+      ${esc(label)}${required ? '<span class="field__required"> (required)</span>' : ''}
+    </label>
+    ${hint ? `<p class="field__hint" id="${esc(id)}-hint">${esc(hint)}</p>` : ''}
+    <div class="code-slots" data-code-slots data-slots-length="${length}" data-slots-error="${error ? '1' : '0'}">
+      <input
+        class="input code-slots__input"
+        id="${esc(id)}"
+        name="${esc(name ?? id)}"
+        type="text"
+        inputmode="text"
+        autocapitalize="characters"
+        spellcheck="false"
+        value="${esc(value)}"
+        ${required ? 'required' : ''}
+        maxlength="20"
+        ${autocomplete ? `autocomplete="${esc(autocomplete)}"` : ''}
+        ${placeholder ? `placeholder="${esc(placeholder)}"` : ''}
+        ${describedBy ? `aria-describedby="${esc(describedBy)}"` : ''}
+      />
+      <div class="code-slots__display" aria-hidden="true">${slots}</div>
+    </div>
+  </div>`;
+}
+
 export function selectField({ id, name, label, options, value = '', hint, error, required, placeholder }) {
   const rendered = options
     .map((option) => `<option value="${esc(option.value)}"${option.value === value ? ' selected' : ''}>${esc(option.label)}</option>`)

@@ -22,7 +22,7 @@ import { createRateLimiter } from '../server/lib/rateLimit.mjs';
 import { createFileStore, sameEmail } from '../server/store/fileStore.mjs';
 import { createAttachmentStore, safeDisplayName, validateFiles } from '../server/core/attachments.mjs';
 import { createTicketService, publicEvents, summarize } from '../server/core/tickets.mjs';
-import { esc, paragraphs } from '../server/views/components.mjs';
+import { esc, paragraphs, codeSlots } from '../server/views/components.mjs';
 
 /** A ticket service over a throwaway directory. */
 async function harness() {
@@ -465,4 +465,60 @@ test('everything a reporter writes is escaped on the way out', () => {
   assert.equal(esc('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');
   assert.equal(esc('" onload="x'), '&quot; onload=&quot;x');
   assert.match(paragraphs('<b>one</b>\n\ntwo'), /^<p>&lt;b&gt;one&lt;\/b&gt;<\/p><p>two<\/p>$/);
+});
+
+/* ── Code Slots ────────────────────────────────────────────────────────────────────────── */
+
+test('codeSlots renders one real, labelled input and the requested number of decorative boxes', () => {
+  const html = codeSlots({
+    id: 'confirm',
+    name: 'confirm',
+    label: 'Code from the app',
+    value: '',
+    required: true,
+    autocomplete: 'off',
+    length: 8,
+    groupSize: 4,
+  });
+
+  // The real, submittable field: an ordinary <input>, same id/name/required-ness a plain
+  // textField() would have produced, still wired to its <label> the same way every other
+  // field on the site is.
+  assert.match(html, /<label class="field__label" for="confirm">/);
+  assert.match(html, /<input[\s\S]*id="confirm"[\s\S]*\/>/);
+  assert.match(html, /name="confirm"/);
+  assert.match(html, /required/);
+  assert.match(html, /type="text"/);
+
+  // Eight decorative boxes, aria-hidden as a group, none individually labelled — a screen
+  // reader has exactly one field to make sense of, not nine.
+  assert.equal((html.match(/code-slots__slot(?!--)/g) ?? []).length, 8);
+  assert.match(html, /<div class="code-slots__display" aria-hidden="true">/);
+  assert.equal((html.match(/aria-hidden="true"/g) ?? []).length, 9, 'the display wrapper plus all 8 slots');
+
+  // Grouped 4-and-4: the gap sits after the fourth slot, not the boundary of the display.
+  const groupEndIndex = html.indexOf('code-slots__slot--group-end');
+  const dataIndexMatch = html.slice(groupEndIndex - 60, groupEndIndex + 60).match(/data-slot-index="(\d)"/);
+  assert.equal(dataIndexMatch?.[1], '3');
+});
+
+test('codeSlots never puts a value in the decorative boxes — only the real input carries it', () => {
+  // A caller could pass `value`, but nothing does for the confirm field (deviceConfirmPage
+  // always renders it blank) — this pins that the component itself does not leak a typed
+  // value into the aria-hidden markup even when asked to.
+  const html = codeSlots({ id: 'confirm', name: 'confirm', label: 'Code', value: 'KDMX-7QRT', length: 8 });
+  const display = html.slice(html.indexOf('code-slots__display'));
+  assert.equal(display.includes('KDMX'), false, 'the boxes stay empty in server-rendered HTML — help.js fills them from the input, client-side');
+  assert.match(html, /value="KDMX-7QRT"/, 'the real input still carries it, exactly as a plain input would');
+});
+
+test('codeSlots escapes what it is given, the same as every other field component', () => {
+  const html = codeSlots({ id: 'confirm', name: 'confirm', label: '<b>Code</b>', value: '"><script>x</script>', length: 8 });
+  assert.equal(html.includes('<script>x</script>'), false);
+  assert.match(html, /&lt;b&gt;Code&lt;\/b&gt;/);
+});
+
+test('codeSlots marks the server-known error state for help.js to react to, and defaults to none', () => {
+  assert.match(codeSlots({ id: 'confirm', name: 'confirm', label: 'Code', length: 8, error: true }), /data-slots-error="1"/);
+  assert.match(codeSlots({ id: 'confirm', name: 'confirm', label: 'Code', length: 8 }), /data-slots-error="0"/);
 });

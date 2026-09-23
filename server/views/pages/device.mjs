@@ -19,7 +19,7 @@
  * from the session on the server; a hidden field naming one would be a way to aim somebody
  * else's approval at an account of your choosing.
  */
-import { esc, button, icon, notice, textField } from '../components.mjs';
+import { esc, button, codeSlots, icon, notice, textField } from '../components.mjs';
 import { hero, page } from '../layout.mjs';
 
 /**
@@ -138,7 +138,7 @@ export function deviceConfirmPage({ grant, code, account, error = null }) {
       </p>
       <input type="hidden" name="code" value="${esc(code)}" />
       <input type="hidden" name="action" value="approve" />
-      ${textField({
+      ${codeSlots({
         id: 'confirm',
         name: 'confirm',
         label: 'Code from the app',
@@ -146,8 +146,10 @@ export function deviceConfirmPage({ grant, code, account, error = null }) {
         placeholder: 'KDMX-7QRT',
         hint: 'Upper or lower case, with or without the dash.',
         required: true,
-        maxLength: 20,
         autocomplete: 'off',
+        length: 8,
+        groupSize: 4,
+        error: Boolean(error),
       })}
       <div class="form__actions">
         ${button('Connect', { type: 'submit' })}

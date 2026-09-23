@@ -625,6 +625,121 @@ test('the account PAGES stay same-origin, cookie-only', async (t) => {
   }
 });
 
+/* ── Code Slots (the confirm field's input experience) ─────────────────────────────────────
+ *
+ * The confirm screen renders the code with server/views/components.mjs `codeSlots()`
+ * instead of a plain `textField()`. These tests are about the one thing that must never
+ * move: the real gate is still `normalizeUserCode(typed) !== normalizeUserCode(code)` in
+ * deviceRoutes.mjs, and the value that reaches it is still the same `confirm` field a plain
+ * `<input>` would have submitted — Code Slots is a client-side input EXPERIENCE, not a
+ * second, competing way to decide anything.
+ */
+
+test('the confirm screen renders Code Slots, but the field is still a real, plain input', async (t) => {
+  const { origin } = await startServer(t);
+  const app = appClient(origin);
+  const browser = browserClient(origin);
+  await signUp(browser);
+
+  const started = await app.post('/api/device/code', { product: 'open-cut' });
+  const html = await browser
+    .post('/account/device', { code: started.json.user_code, action: 'approve' })
+    .then((r) => r.text());
+
+  // The real field: same id, same name, same required-ness as before Code Slots existed.
+  // Whatever the decorative boxes do, THIS is what a browser — or a test — submits.
+  assert.match(html, /<input[^>]*class="input code-slots__input"[^>]*id="confirm"/);
+  assert.match(html, /<input[^>]*name="confirm"/);
+  assert.match(html, /type="text"/);
+
+  // Eight boxes for an eight-character code, grouped 4 and 4 like the placeholder shows.
+  const slotCount = (html.match(/class="code-slots__slot[ "]/g) ?? []).length;
+  assert.equal(slotCount, 8);
+  assert.match(html, /data-slots-length="8"/);
+  assert.match(html, /code-slots__slot--group-end/);
+
+  // The decorative row is `aria-hidden`: a screen reader has exactly one labelled field to
+  // work with, never eight unlabelled ones standing in for it.
+  assert.match(html, /<div class="code-slots__display" aria-hidden="true">/);
+
+  // No error was made, so the page must not render as though one was.
+  assert.match(html, /data-slots-error="0"/);
+});
+
+test('Code Slots defaults to a plain input server-side — the "ready" (JS-only) state is never pre-rendered', async (t) => {
+  const { origin } = await startServer(t);
+  const app = appClient(origin);
+  const browser = browserClient(origin);
+  await signUp(browser);
+
+  const started = await app.post('/api/device/code', { product: 'open-cut' });
+  const html = await browser
+    .post('/account/device', { code: started.json.user_code, action: 'approve' })
+    .then((r) => r.text());
+
+  // `code-slots--ready` is added by help.js after it runs. If the server ever rendered it
+  // directly, a person with script blocked would be stuck looking at boxes with a
+  // fully-transparent, invisible input underneath and no way to type into it.
+  assert.equal(html.includes('code-slots--ready'), false);
+});
+
+test('a wrong code still fails the same server-side check, and the page says so for Code Slots to react to', async (t) => {
+  const { origin } = await startServer(t);
+  const app = appClient(origin);
+  const browser = browserClient(origin);
+  await signUp(browser);
+
+  const started = await app.post('/api/device/code', { product: 'open-cut' });
+  const code = started.json.user_code;
+
+  const wrong = await browser.post('/account/device', { code, action: 'approve', confirm: 'ZZZZ-ZZZZ' });
+  assert.equal(wrong.status, 400);
+  const html = await wrong.text();
+
+  // The one real check did the refusing (same assertion as the existing "needs the app
+  // code typed in" test, from the Code Slots side): the existing error copy is untouched...
+  assert.match(html, /That does not match the code the app is showing/);
+  // ...and the wrapper carries the flag help.js reads to play the drain animation.
+  assert.match(html, /data-slots-error="1"/);
+  // The server never re-sends a rejected code — nothing for Code Slots to redisplay.
+  assert.match(html, /id="confirm"[^>]*value=""/);
+
+  // And the grant itself is genuinely still unapproved — Code Slots changed nothing here.
+  const pending = await app.post('/api/device/token', { device_code: started.json.device_code });
+  assert.equal(pending.status, 400);
+  assert.equal(pending.json.error, 'authorization_pending');
+});
+
+test('a JS-off submission — a plain POST with just `confirm` — still approves the grant', async (t) => {
+  const { origin } = await startServer(t);
+  const app = appClient(origin);
+  const browser = browserClient(origin);
+  await signUp(browser);
+
+  const started = await app.post('/api/device/code', { product: 'atlas' });
+  const code = started.json.user_code;
+
+  // No fetch, no script: this is exactly what a browser with JavaScript disabled sends when
+  // the plain `<input name="confirm">` fallback is submitted — the same request shape Code
+  // Slots must keep working, since it is styling and animation over that same field.
+  const approved = await browser.post('/account/device', { code, action: 'approve', confirm: code });
+  assert.equal(approved.status, 303);
+  assert.match(approved.headers.get('location'), /done=approved/);
+
+  const polled = await app.post('/api/device/token', { device_code: started.json.device_code });
+  assert.equal(polled.status, 200);
+});
+
+test('the rule Code Slots\' display folding mirrors — pinned so the two cannot silently drift apart', async () => {
+  // deviceCodes.mjs normalizeUserCode: uppercase, strip everything but 0-9A-Z, fold O->0
+  // and I/L->1. help.js's client-side `foldForDisplay` is a cosmetic copy of exactly this
+  // rule, used only to choose which character a decorative box shows — it never gates
+  // anything (the server holds the one real check, unchanged, in deviceRoutes.mjs).
+  const { normalizeUserCode } = await import('../packages/nova-accounts/deviceCodes.mjs');
+  assert.equal(normalizeUserCode('kdmx 7qrt'), 'KDMX7QRT');
+  assert.equal(normalizeUserCode('o0-i1-l1'), '001111');
+});
+
 /* ── Approving needs the code typed back ───────────────────────────────────────────────── */
 
 test('connecting an app needs the app code typed in, not just a click', async (t) => {

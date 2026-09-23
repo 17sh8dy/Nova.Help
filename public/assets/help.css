@@ -1122,6 +1122,190 @@ code {
   font-size: 0.875rem;
 }
 
+/* ── Code Slots ────────────────────────────────────────────────────────────── */
+
+/* A device/one-time code entered as a row of boxes, backed by one real `.input`.
+   See server/views/components.mjs `codeSlots()` for the markup and help.js for the sync
+   and animation logic.
+
+   THE NO-JS BASELINE IS THE PLAIN INPUT. `.code-slots__display` stays `display: none` and
+   `.code-slots__input` keeps every rule `.input` already has until help.js adds
+   `.code-slots--ready` — so with script blocked or broken this is indistinguishable from
+   any other text field on the site, and still submits the same value under the same name. */
+.code-slots {
+  position: relative;
+}
+
+.code-slots__display {
+  display: none;
+}
+
+.code-slots--ready .code-slots__input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+}
+
+/* The input keeps real keyboard focus; its own focus ring is invisible once it is
+   transparent, so the ring is drawn on the decorative row beside it instead. */
+.code-slots--ready .code-slots__input:focus {
+  outline: none;
+}
+
+.code-slots__input:focus-visible ~ .code-slots__display {
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--brand-bright);
+}
+
+.code-slots--ready .code-slots__display {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.code-slots__slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2.3rem;
+  height: 2.7rem;
+  background: var(--surface-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  font-weight: 650;
+  color: var(--text);
+  text-transform: uppercase;
+  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+
+/* The group boundary (KDMX-7QRT) is a gap, not a literal dash — it keeps the row one flat
+   list of slots, which is what lets the drain animation below stagger with plain CSS. */
+.code-slots__slot--group-end {
+  margin-right: 0.55rem;
+}
+
+.code-slots__slot[data-active="true"] {
+  border-color: var(--brand);
+}
+
+/* The optional blinking caret in the active (next-empty) slot. */
+.code-slots__slot[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  width: 1.5px;
+  height: 1.2rem;
+  background: var(--brand-bright);
+  animation: code-slots-caret 1s step-end infinite;
+}
+
+@keyframes code-slots-caret {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* A character lands — typed, or arriving from outside as a paste or autofill. Suppressed
+   during the error drain below so the two animations never fight over the same slot. */
+.code-slots:not(.code-slots--error) .code-slots__slot[data-filled="true"] {
+  background: var(--brand-wash);
+  border-color: var(--brand-edge);
+  animation: code-slots-fill 0.22s var(--ease) both;
+}
+
+@keyframes code-slots-fill {
+  0% {
+    transform: translateY(-0.4rem) scale(0.9);
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Error: the server rendered this page because what was typed did not match — the one
+   real check, in deviceRoutes.mjs, unchanged. The field is already blank (the server never
+   re-sends a rejected code), so every slot is shown generically filled for one frame and
+   then drains away, last to first, under a danger tint: "wrong, try again", without ever
+   redisplaying what was typed. */
+.code-slots--draining .code-slots__slot[data-filled="true"] {
+  animation: code-slots-drain 0.5s var(--ease) both;
+}
+
+@keyframes code-slots-drain {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    background: var(--bad-wash);
+    border-color: var(--bad);
+  }
+  60% {
+    transform: scale(0.92);
+    opacity: 0.55;
+    background: var(--bad-wash);
+    border-color: var(--bad);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    background: var(--surface-inset);
+    border-color: var(--line-strong);
+  }
+}
+
+.code-slots--draining .code-slots__slot:nth-last-child(1) {
+  animation-delay: 0ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(2) {
+  animation-delay: 45ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(3) {
+  animation-delay: 90ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(4) {
+  animation-delay: 135ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(5) {
+  animation-delay: 180ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(6) {
+  animation-delay: 225ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(7) {
+  animation-delay: 270ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(8) {
+  animation-delay: 315ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(9) {
+  animation-delay: 360ms;
+}
+.code-slots--draining .code-slots__slot:nth-last-child(10) {
+  animation-delay: 405ms;
+}
+
+/* Submitting: an honest "this is locked while the server checks it" — never a claim that
+   the code was right. A wrong code re-renders this same page in the same dimmed markup
+   until fresh HTML replaces it, so nothing here gets ahead of the one real answer. */
+.code-slots--submitting .code-slots__slot {
+  opacity: 0.55;
+}
+
 /* ── Notices ───────────────────────────────────────────────────────────────── */
 
 .notice {
