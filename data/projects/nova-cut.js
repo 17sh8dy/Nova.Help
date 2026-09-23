@@ -7,6 +7,8 @@ export const project = {
   blurb: 'The video editor and photo editor — import, timeline, effects and export.',
   kind: 'Desktop app',
   icon: 'film',
+  /** Nova Cut's real mark (see server/views/brandmarks.mjs) — `icon` stays as the fallback. */
+  logo: 'nova-cut',
   environment: {
     collect: true,
     versionLabel: 'Nova Cut version',

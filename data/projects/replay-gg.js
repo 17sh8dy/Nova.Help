@@ -7,6 +7,8 @@ export const project = {
   blurb: 'Gameplay recording and clipping — capture, hotkeys, clips and storage.',
   kind: 'Desktop app',
   icon: 'record',
+  /** Replay.GG's real mark (see server/views/brandmarks.mjs) — `icon` stays as the fallback. */
+  logo: 'replay-gg',
   environment: {
     collect: true,
     versionLabel: 'Replay.GG version',

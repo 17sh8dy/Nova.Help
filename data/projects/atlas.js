@@ -8,6 +8,8 @@ export const project = {
   blurb: 'The desktop assistant — install, voice, skills and privacy.',
   kind: 'Desktop app',
   icon: 'compass',
+  /** Atlas's real mark (see server/views/brandmarks.mjs) — `icon` stays as the fallback. */
+  logo: 'atlas',
   environment: {
     collect: true,
     versionLabel: 'Atlas version',
