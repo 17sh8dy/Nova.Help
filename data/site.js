@@ -11,7 +11,7 @@ export const site = {
   tagline: 'Support for the Nova ecosystem',
   description:
     'The support portal for Nova products — Atlas, Nova Cut and Replay.GG. Find an answer or open a ticket with a person.',
-  origin: 'https://nova.help',
+  origin: 'https://nova-help.shadylabs.workers.dev',
 
   /** Shown on the ticket confirmation. Keep honest: this is a target, not a guarantee. */
   responseTarget: 'We aim to reply within 2 business days.',

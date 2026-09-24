@@ -63,7 +63,7 @@
  */
 
 /** Where the account service lives. Overridable, because it is not the same in development. */
-const NOVA_ACCOUNTS_ORIGIN = 'https://nova.help';
+const NOVA_ACCOUNTS_ORIGIN = 'https://nova-help.shadylabs.workers.dev';
 
 /** Reasons a sign-in ends without a token, as an app should present them. */
 const SIGN_IN_FAILURES = Object.freeze({

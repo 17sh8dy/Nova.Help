@@ -2,7 +2,7 @@
 
 D1 for the documents, R2 for the bytes, a Durable Object per key for the throttles, and the
 Node implementation still in place and still the default. **Deployed 2026-09-10**, live at
-<https://nova-help.17sh8dy.workers.dev> — the free workers.dev subdomain, not a custom domain.
+<https://nova-help.shadylabs.workers.dev> — the free workers.dev subdomain, not a custom domain.
 No domain is being bought for this right now, so that free URL is the real answer rather than a
 placeholder for one. `NOVA_HELP_SECRET` is a real secret on the account, and the real
 `nova-help-attachments` R2 bucket and the real `nova-help` D1 database (schema applied) have
