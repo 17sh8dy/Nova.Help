@@ -151,3 +151,47 @@ test('a ticket filed by a signed-in Nova Account says so in the notification', (
   const message = ticketCreatedMessage({ to: 'x@example.com', ticket });
   assert.match(message.text, /User: reporter@example\.com \(Nova Account NA-ABCD-1234-EFGH\)/);
 });
+
+test('a failed send is recorded on the ticket, the ticket is still saved, and a retry sends it once', async (t) => {
+  let fail = true;
+  const sent = [];
+  const mailer = {
+    async send(message) {
+      if (fail) throw new Error('Resend refused the message (403): only your own address while unverified');
+      sent.push(message);
+      return { ok: true, id: 'em_1' };
+    },
+  };
+  const logs = [];
+  const { tickets, cleanup } = await harness({ mailer, notifyEmail: 'getnovasupport@gmail.com', logger: { error: (m) => logs.push(m), warn() {}, info() {} } });
+  t.after(cleanup);
+
+  const created = await tickets.create({ input: validInput });
+  assert.equal(created.ok, true, 'the ticket is saved even though mail failed');
+  assert.match(logs.join('\n'), /FAILED \(attempt 1\/5\)/);
+
+  let stored = await tickets.get(created.ticket.id);
+  const rec = stored.events.filter((e) => e.type === 'notification');
+  assert.equal(rec.length, 1);
+  assert.equal(rec[0].meta.status, 'failed');
+  assert.equal(rec[0].visibility, 'internal', 'never shown to the reporter');
+  assert.doesNotMatch(JSON.stringify(rec[0]), /reporter@example\.com|never gets past/, 'no ticket content in the record');
+
+  fail = false;
+  assert.deepEqual(await tickets.retryNotifications(), { checked: 1, sent: 1, failed: 0 });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].idempotencyKey, `ticket-created-${created.ticket.id}`);
+
+  assert.deepEqual(await tickets.retryNotifications(), { checked: 0, sent: 0, failed: 0 }, 'a sent ticket is never re-sent');
+  stored = await tickets.get(created.ticket.id);
+  assert.equal(stored.events.filter((e) => e.type === 'notification').at(-1).meta.status, 'sent');
+});
+
+test('retries stop after five attempts', async (t) => {
+  const mailer = { async send() { throw new Error('nope'); } };
+  const { tickets, cleanup } = await harness({ mailer, notifyEmail: 'getnovasupport@gmail.com', logger: { error() {}, warn() {}, info() {} } });
+  t.after(cleanup);
+  await tickets.create({ input: validInput });
+  for (let i = 0; i < 4; i += 1) assert.equal((await tickets.retryNotifications()).failed, 1);
+  assert.deepEqual(await tickets.retryNotifications(), { checked: 0, sent: 0, failed: 0 });
+});

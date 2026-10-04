@@ -71,3 +71,15 @@ test('the configured flag is true, matching every real transport', () => {
   const mailer = createResendMailer({ apiKey: 'sk_test_123', fetchImpl: fakeFetch().fetchImpl });
   assert.equal(mailer.configured, true);
 });
+
+test('an idempotency key is forwarded as the Idempotency-Key header, and status() reads the delivery event', async () => {
+  const { fetchImpl, calls } = fakeFetch({ body: { id: 'em_9', last_event: 'delivered', to: ['getnovasupport@gmail.com'] } });
+  const mailer = createResendMailer({ apiKey: 'sk_test_123', fetchImpl });
+
+  await mailer.send({ to: 'a@b.c', subject: 's', text: 't', idempotencyKey: 'ticket-created-NH-1' });
+  assert.equal(calls[0].init.headers['idempotency-key'], 'ticket-created-NH-1');
+
+  const status = await mailer.status('em_9');
+  assert.equal(status.lastEvent, 'delivered');
+  assert.equal(calls[1].url, 'https://api.resend.com/emails/em_9');
+});

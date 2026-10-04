@@ -31,6 +31,8 @@ export function ticketCreatedMessage({ to, ticket, projectLabel, categoryLabel, 
 
   return {
     to,
+    // Per ticket, so a retry after an accepted send cannot create a second email.
+    idempotencyKey: `ticket-created-${ticket.id}`,
     subject: `New Nova.Help ticket ${ticket.id}: ${ticket.subject}`,
     text: lines.join('\n'),
   };

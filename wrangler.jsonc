@@ -41,6 +41,10 @@
 
   "observability": { "enabled": true },
 
+  // Every 15 minutes: retry new-ticket emails that failed or never went out (see
+  // TicketService.retryNotifications). A no-op when no mail key is configured.
+  "triggers": { "crons": ["*/15 * * * *"] },
+
   // public/ is served by the assets binding rather than by lib/static.mjs, which needs a
   // filesystem. `run_worker_first` keeps the Worker in charge of routing: an asset is answered
   // only when the path really is one.

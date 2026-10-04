@@ -251,6 +251,14 @@ function build(env) {
 }
 
 export default {
+  /* Cron (wrangler.jsonc triggers): re-send new-ticket notifications that failed or never went
+     out. Failures are logged by the ticket service; this only reports the totals. */
+  async scheduled(_event, env) {
+    const app = await build(env);
+    const summary = await app.ctx.tickets.retryNotifications();
+    console.log('[nova.help] notification retry', JSON.stringify(summary));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
 

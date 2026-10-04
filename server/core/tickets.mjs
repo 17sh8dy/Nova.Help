@@ -45,6 +45,12 @@ import { ticketCreatedMessage } from './notify.mjs';
  */
 const SCHEMA_VERSION = 2;
 
+const MAX_NOTIFY_ATTEMPTS = 5;
+const NOTIFY_RETRY_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+const notificationEvents = (ticket) => (ticket?.events ?? []).filter((e) => e.type === 'notification');
+const notificationSent = (ticket) => notificationEvents(ticket).some((e) => e.meta?.status === 'sent');
+const notificationAttempts = (ticket) => notificationEvents(ticket).length;
+
 /** Who did a thing. `kind` is what matters; `name` is only for display. */
 const actorOf = (actor = {}) => ({
   kind: actor.kind ?? 'user',
@@ -90,6 +96,9 @@ export function createTicketService({ store, attachments, mailer = null, notifyE
    */
   async function notifyStaff(ticket) {
     if (!mailer || !notifyEmail) return;
+    const previous = notificationAttempts(ticket);
+    const attempt = previous + 1;
+    let outcome;
     try {
       const project = getProject(ticket.project);
       const category = getCategory(ticket.project, ticket.category);
@@ -102,10 +111,34 @@ export function createTicketService({ store, attachments, mailer = null, notifyE
         issueTypeLabel: issueType?.label,
       });
       const result = await mailer.send(message);
-      if (!result?.ok) logger.warn?.(`[nova.help] new-ticket notification for ${ticket.id} did not send (${result?.reason ?? 'unknown reason'})`);
+      outcome = result?.ok
+        ? { status: 'sent', providerId: result.id ?? null }
+        : { status: 'failed', error: String(result?.reason ?? 'unknown reason') };
     } catch (error) {
-      logger.error?.(`[nova.help] new-ticket notification for ${ticket.id} threw`, error);
+      outcome = { status: 'failed', threw: true, error: String(error?.message ?? error) };
     }
+
+    // Never the message text, the recipient list or any header: a provider's error body is
+    // trimmed to one short line, which is enough to tell "bad key" from "unverified recipient".
+    const meta = { status: outcome.status, attempt, ...(outcome.providerId ? { providerId: outcome.providerId } : {}) };
+    if (outcome.status === 'failed') {
+      meta.error = outcome.error.replace(/\s+/g, ' ').slice(0, 200);
+      // A refusal (`{ok:false}`) is a warning, a throw an error; both say which attempt this was.
+      const line = `[nova.help] new-ticket notification for ${ticket.id} FAILED (attempt ${attempt}/${MAX_NOTIFY_ATTEMPTS}): ${meta.error}`;
+      (outcome.threw ? logger.error : logger.warn)?.call(logger, line);
+    }
+
+    // Record the outcome as an internal event so a failure is visible and retryable instead of
+    // silent. If even this write fails, the ticket is still saved and we only log it.
+    try {
+      await store.update(ticket.id, (doc) => {
+        doc.events.push(event({ type: 'notification', actor: { kind: 'system' }, visibility: 'internal', meta }));
+        return doc;
+      });
+    } catch (error) {
+      logger.error?.(`[nova.help] could not record notification outcome for ${ticket.id}`, error);
+    }
+    return meta;
   }
 
   return {
@@ -195,6 +228,27 @@ export function createTicketService({ store, attachments, mailer = null, notifyE
       await notifyStaff(ticket);
 
       return { ok: true, ticket };
+    },
+
+    /**
+     * Re-send notifications that never went out: tickets in the last few days with no
+     * successful notification and fewer than MAX_NOTIFY_ATTEMPTS tries. Safe to run repeatedly
+     * (the mailer's idempotency key is per ticket, so a retry cannot create a duplicate once a
+     * send has been accepted). Also covers tickets filed before a mail key was configured.
+     */
+    async retryNotifications({ limit = 25, windowMs = NOTIFY_RETRY_WINDOW_MS } = {}) {
+      const summary = { checked: 0, sent: 0, failed: 0 };
+      if (!mailer || !notifyEmail) return { ...summary, skipped: 'mail not configured' };
+      const { tickets: recent } = await store.list({ limit });
+      for (const ticket of recent) {
+        if (Date.now() - Date.parse(ticket.createdAt) > windowMs) continue;
+        if (notificationSent(ticket) || notificationAttempts(ticket) >= MAX_NOTIFY_ATTEMPTS) continue;
+        summary.checked += 1;
+        const meta = await notifyStaff(ticket);
+        if (meta?.status === 'sent') summary.sent += 1;
+        else summary.failed += 1;
+      }
+      return summary;
     },
 
     /** A ticket by id, or null. No access check — callers decide who may see it. */

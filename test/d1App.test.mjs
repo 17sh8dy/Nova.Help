@@ -141,7 +141,7 @@ test('[d1] a ticket filed through the flow lands in the tables', async (t) => {
   assert.match(row.requester_email_hash, /^[0-9a-f]{64}$/);
   assert.equal(row.requester_email_hash.includes('reporter'), false, 'the index holds a digest');
 
-  const events = await db.prepare('SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY seq').bind(id).all();
+  const events = await db.prepare("SELECT * FROM ticket_events WHERE ticket_id = ? AND type != 'notification' ORDER BY seq").bind(id).all();
   assert.equal(events.results.length, 1);
   assert.equal(events.results[0].type, 'created');
   assert.equal(events.results[0].seq, 0);
@@ -186,8 +186,8 @@ test('[d1] a reply is appended as its own row and shows on the page', async (t) 
   const reply = await browser.post(`/tickets/${id}/replies`, { body: 'Still happening after the update.' });
   assert.equal(reply.status, 303, await reply.text());
 
-  const events = await db.prepare('SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY seq').bind(id).all();
-  assert.deepEqual(events.results.map((e) => e.seq), [0, 1]);
+  const events = await db.prepare("SELECT * FROM ticket_events WHERE ticket_id = ? AND type != 'notification' ORDER BY seq").bind(id).all();
+  assert.deepEqual(events.results.map((e) => e.seq), [0, 2], 'seq 1 is the internal notification record');
   assert.equal(events.results[1].type, 'reply');
   assert.equal(events.results[1].body, 'Still happening after the update.');
 

@@ -26,12 +26,13 @@ export function createResendMailer({ apiKey, from = 'Nova.Help <onboarding@resen
 
   return {
     configured: true,
-    async send({ to, subject, text }) {
+    async send({ to, subject, text, idempotencyKey }) {
       const response = await fetchImpl(RESEND_API, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${apiKey}`,
+          ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
         },
         body: JSON.stringify({ from, to, subject, text }),
       });
@@ -44,6 +45,14 @@ export function createResendMailer({ apiKey, from = 'Nova.Help <onboarding@resen
       const result = await response.json().catch(() => ({}));
       logger.info?.(`[nova.help] mail sent via Resend: "${subject}" -> ${to} (id ${result.id ?? 'unknown'})`);
       return { ok: true, id: result.id };
+    },
+
+    /** Delivery state of an accepted message (`delivered`, `bounced`, `delivery_delayed`, ...). */
+    async status(id) {
+      const response = await fetchImpl(`${RESEND_API}/${encodeURIComponent(id)}`, { headers: { authorization: `Bearer ${apiKey}` } });
+      if (!response.ok) throw new Error(`Resend status lookup failed (${response.status})`);
+      const result = await response.json();
+      return { id, lastEvent: result.last_event ?? null, to: result.to ?? null };
     },
   };
 }
