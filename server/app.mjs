@@ -58,6 +58,13 @@ export async function createApp({
    */
   origin = null,
   /**
+   * Where an installed app tells somebody to go and approve a sign-in code. Defaults to `origin`
+   * (Nova.Help's own /account/device). Set to the Nova site's origin and apps send people there
+   * instead: Nova is where the account is managed, and both sites decide the same grants in the
+   * same database, so a code started here can be approved at either.
+   */
+  deviceApprovalOrigin = null,
+  /**
    * Federated sign-in, e.g. `{ google: { clientId, clientSecret } }`. Omit it and Nova.Help
    * runs exactly as before with email and password only — no buttons, no routes taking effect.
    */
@@ -192,7 +199,8 @@ export async function createApp({
     /* Where an app tells somebody to go and approve a code. Left null when no origin is
        configured, in which case the route computes one from the request's own Host — a
        development convenience, and harmless: it only ever becomes text on the app's screen. */
-    deviceVerificationUri: origin ? `${origin.replace(/\/+$/, '')}/account/device` : null,
+    deviceVerificationUri:
+      deviceApprovalOrigin || origin ? `${(deviceApprovalOrigin || origin).replace(/\/+$/, '')}/account/device` : null,
     ...(transport ? { mailer: transport } : {}),
     ...(stores?.accounts ? { store: stores.accounts } : {}),
     ...(passwordCost ? { cost: passwordCost } : {}),
@@ -241,7 +249,7 @@ export async function createApp({
     deviceVerify: limiter('deviceVerify', 15 * 60 * 1000, 15),
   };
 
-  const config = { dev, trustProxy, secureCookies, origin, cookieDomain };
+  const config = { dev, trustProxy, secureCookies, origin, deviceApprovalOrigin, cookieDomain };
   const viewer = createViewer({ accounts, access, config });
   const ctx = { tickets, attachments, store, access, accounts, viewer, limiters, config, logger };
 

@@ -195,7 +195,10 @@ export function registerDeviceRoutes(router, ctx) {
       return oauthError(res, 'server_error', 'Could not start a sign-in just now.');
     }
 
-    const base = config.origin ?? `http://${req.headers.host ?? '127.0.0.1'}`;
+    /* The approval page may live on another Nova site (config.deviceApprovalOrigin -- the Nova
+       site, where the account is managed). It only ever becomes text on the app's screen and a
+       link it opens; the device grant itself is decided in the shared database either way. */
+    const base = config.deviceApprovalOrigin ?? config.origin ?? `http://${req.headers.host ?? '127.0.0.1'}`;
     const verificationUri = `${base.replace(/\/+$/, '')}/account/device`;
 
     return ok(

@@ -26,9 +26,10 @@ import { createApp } from '../server/app.mjs';
 const CHEAP = { N: 1024, r: 8, p: 1 };
 const PASSWORD = 'a passphrase nobody guesses';
 
-async function startServer(t) {
+async function startServer(t, extra = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), 'novahelp-device-'));
   const app = await createApp({
+    ...extra,
     dataDir: dir,
     dev: true,
     passwordCost: CHEAP,
@@ -769,4 +770,29 @@ test('connecting an app needs the app code typed in, not just a click', async (t
   const typed = code.toLowerCase().replace('-', '');
   const done = await browser.post('/account/device', { code, action: 'approve', confirm: typed });
   assert.equal(done.status, 303);
+});
+
+/* ── Where the approval page lives ─────────────────────────────────────────────────────── */
+
+const startCode = async (origin) =>
+  (await fetch(`${origin}/api/device/code`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ product: 'atlas', scope: 'identity' }),
+  })).json();
+
+test('with an approval origin set, apps are told to approve on THAT site', async (t) => {
+  const { origin } = await startServer(t, {
+    origin: 'https://help.example',
+    deviceApprovalOrigin: 'https://nova.example/',
+  });
+  const started = await startCode(origin);
+  assert.equal(started.verification_uri, 'https://nova.example/account/device');
+  assert.equal(started.verification_uri_complete, `https://nova.example/account/device?code=${started.user_code}`);
+});
+
+test('without one, apps are told to approve on this site, exactly as before', async (t) => {
+  const { origin } = await startServer(t, { origin: 'https://help.example' });
+  const started = await startCode(origin);
+  assert.equal(started.verification_uri, 'https://help.example/account/device');
 });

@@ -214,6 +214,7 @@ function build(env) {
     trustProxy: true,
     secureCookies: true,
     origin: env.NOVA_HELP_ORIGIN ?? null,
+    deviceApprovalOrigin: env.NOVA_DEVICE_APPROVAL_ORIGIN ?? null,
     signingSecret: env.NOVA_HELP_SECRET,
     /* node:net/node:tls (server/mail/smtpMailer.mjs) are not available inside a Worker isolate
        the way they are under plain Node, and this deployment has no custom domain yet for

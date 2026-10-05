@@ -98,7 +98,14 @@
     // NOVA_HELP_SECRET. Editing this value by hand before every deploy and reverting it after
     // was the alternative, and it is exactly the kind of manual step that regresses production
     // the day someone forgets it.
-    "NOVA_HELP_ORIGIN": "https://nova-help.shadylabs.workers.dev"
+    "NOVA_HELP_ORIGIN": "https://nova-help.shadylabs.workers.dev",
+
+    // Where installed apps (Atlas, Nova Cut, Replay.GG, Online Earth) send somebody to approve a
+    // sign-in code. The Nova site, because that is where the account is managed and where
+    // Google sign-in lives; it decides the same grants in the same D1, so a code started here is
+    // approved there. Unset this and the apps fall back to this Worker's own /account/device,
+    // which still works.
+    "NOVA_DEVICE_APPROVAL_ORIGIN": "https://nova-780.pages.dev"
   }
 
   // NOVA_HELP_SECRET, NOVA_GOOGLE_CLIENT_ID and NOVA_GOOGLE_SECRET are secrets, never vars.
