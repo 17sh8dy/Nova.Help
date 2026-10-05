@@ -67,6 +67,28 @@ export function deviceCodePage({ code = '', error = null, account = null, done =
       )
     : '';
 
+  /* A FINISHED GRANT GETS A FINISHED PAGE. Showing the code form under "That app is connected"
+     reads as the site asking for the code a second time -- it did, to somebody, on 2026-10-05 --
+     so once something has been decided the page says so and offers no field to type in. */
+  if (done && !error) {
+    return page({
+      title: done === 'approved' ? 'App connected' : 'Nothing connected',
+      description: 'Connect a Nova app to your Nova Account.',
+      path: '/account/device',
+      noindex: true,
+      account,
+      hero: hero({
+        eyebrow: 'Nova Account',
+        title: done === 'approved' ? 'You’re connected' : 'Nothing was connected',
+        lede: done === 'approved' ? 'You can close this tab and go back to the app.' : 'The app was not given access.',
+      }),
+      main: `<div class="wrap narrow">
+        ${banner}
+        <div class="form__actions">${button('Go to your Nova Account', { href: '/account', variant: 'ghost' })}</div>
+      </div>`,
+    });
+  }
+
   const main = `<div class="wrap narrow">
     ${banner}
     ${

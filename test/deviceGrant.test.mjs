@@ -796,3 +796,13 @@ test('without one, apps are told to approve on this site, exactly as before', as
   const started = await startCode(origin);
   assert.equal(started.verification_uri, 'https://help.example/account/device');
 });
+
+test('a decided grant shows no code field on Nova.Help either', async (t) => {
+  const { origin } = await startServer(t);
+  for (const done of ['approved', 'denied']) {
+    const text = await (await fetch(`${origin}/account/device?done=${done}`)).text();
+    assert.equal(text.includes('name="code"'), false);
+    assert.equal(text.includes('Code from the app'), false);
+    assert.match(text, done === 'approved' ? /That app is connected/ : /Nothing was connected/);
+  }
+});
