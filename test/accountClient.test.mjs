@@ -319,3 +319,60 @@ test('sync refuses politely when nobody is signed in', async (t) => {
   assert.deepEqual(await client.pull(), { ok: false, reason: 'signed-out' });
   assert.deepEqual(await client.push({ baseVersion: 0, data: {} }), { ok: false, reason: 'signed-out' });
 });
+
+/* ── Coming back to the app ────────────────────────────────────────────────────────────── */
+
+/** A sleep that never finishes by itself: only a nudge or a cancel can end the wait. */
+const stuck = () => new Promise(() => {});
+
+test('nudge() polls immediately, so an approval already done is noticed on return to the app', async (t) => {
+  const { origin } = await startServer(t);
+  const person = browser(origin);
+  await person.signUp();
+  const client = clientFor(origin, { sleep: stuck });
+
+  const flow = await client.beginSignIn();
+  const waiting = flow.wait();
+  await person.approve(flow.userCode);
+
+  /* Without the nudge this would hang forever: the scheduled wait is stuck. */
+  flow.nudge();
+  const result = await waiting;
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(client.isSignedIn(), true);
+});
+
+test('nudge() before approval keeps waiting rather than failing', async (t) => {
+  const { origin } = await startServer(t);
+  const person = browser(origin);
+  await person.signUp();
+  const client = clientFor(origin, { sleep: stuck });
+
+  const flow = await client.beginSignIn();
+  const waiting = flow.wait();
+  flow.nudge(); // one poll: still pending
+  await new Promise((r) => setTimeout(r, 50));
+  await person.approve(flow.userCode);
+
+  /* Too soon after the last poll for the server's pacing, so this nudge is ignored. */
+  flow.nudge();
+  let settled = false;
+  waiting.then(() => (settled = true));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(settled, false, 'a nudge inside the minimum interval must be ignored, not provoke slow_down');
+
+  flow.cancel();
+  assert.deepEqual(await waiting, { ok: false, reason: 'cancelled' });
+});
+
+test('nudge() after the flow has ended is harmless', async (t) => {
+  const { origin } = await startServer(t);
+  const person = browser(origin);
+  await person.signUp();
+  const client = clientFor(origin);
+  const flow = await client.beginSignIn();
+  const waiting = flow.wait();
+  flow.cancel();
+  await waiting;
+  assert.doesNotThrow(() => flow.nudge());
+});

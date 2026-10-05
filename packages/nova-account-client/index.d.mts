@@ -53,6 +53,12 @@ export interface NovaSignInFlow {
   scopes: NovaScope[];
   /** Stop polling. `wait()` then resolves with `cancelled`. */
   cancel(): void;
+  /**
+   * Ask now instead of at the next scheduled poll. Call it when the person comes back to the
+   * app (the window regains focus). Ignored if the server's minimum interval has not passed
+   * since the last poll, so it can never trigger `slow_down`.
+   */
+  nudge(): void;
   /** Poll until approved, refused, cancelled or expired. */
   wait(): Promise<
     { ok: true; account: NovaAccount; scopes: NovaScope[] } | { ok: false; reason: SignInFailure }

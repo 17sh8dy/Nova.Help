@@ -222,6 +222,12 @@ function createNovaAccountClient({
 
       const data = started.data;
       let cancelled = false;
+      /* When we last asked, and the least the server will tolerate between two asks. Both feed
+         `nudge()`; neither changes how the scheduled polling behaves. */
+      let lastPollAt = 0;
+      const minIntervalMs = Math.max(1, Number(data.interval ?? 5)) * 1000;
+      /* Resolves the current wait early. Replaced on every wait; a no-op between waits. */
+      let wakeUp = () => {};
 
       return {
         ok: true,
@@ -236,6 +242,23 @@ function createNovaAccountClient({
 
         cancel() {
           cancelled = true;
+          wakeUp();
+        },
+
+        /**
+         * Ask now, rather than at the next scheduled poll. An app calls this when the person
+         * comes BACK to it -- the window regains focus -- which is exactly when an approval
+         * has most likely just happened. A window behind a browser has its timers throttled
+         * by the webview, and after a `slow_down` the interval has been doubled, so without
+         * this the app can take a long while to notice an approval that is already done.
+         *
+         * Harmless to call at any time: it is ignored unless at least the server's own minimum
+         * interval has passed since the last poll, so it can never provoke a `slow_down`, and
+         * it does nothing once the flow has ended.
+         */
+        nudge() {
+          if (Date.now() - lastPollAt < minIntervalMs) return;
+          wakeUp();
         },
 
         /**
@@ -250,9 +273,17 @@ function createNovaAccountClient({
           const deadline = Date.now() + Math.max(0, Number(data.expires_in ?? 600)) * 1000;
 
           while (!cancelled && Date.now() < deadline) {
-            await sleep(interval);
+            /* Wait for the interval OR for somebody to nudge us, whichever is first. */
+            await Promise.race([
+              sleep(interval),
+              new Promise((resolve) => {
+                wakeUp = resolve;
+              }),
+            ]);
+            wakeUp = () => {};
             if (cancelled) break;
 
+            lastPollAt = Date.now();
             const polled = await call('/api/device/token', {
               method: 'POST',
               body: {
