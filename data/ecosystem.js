@@ -47,6 +47,13 @@ export const products = [
     url: 'https://nova-legal.shadylabs.workers.dev/',
   },
   {
+    id: 'nova-review',
+    name: 'Nova.Review',
+    blurb: 'Reviews and suggestions for Nova products.',
+    support: 'nova-review',
+    url: 'https://nova-review.shadylabs.workers.dev/',
+  },
+  {
     id: 'nova-cut',
     name: 'Nova Cut',
     blurb: 'A video and photo editor that is free, and stays free.',

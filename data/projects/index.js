@@ -18,5 +18,6 @@ import { project as atlas } from './atlas.js';
 import { project as atlasWebsite } from './atlas-website.js';
 import { project as novaCut } from './nova-cut.js';
 import { project as replayGg } from './replay-gg.js';
+import { project as novaReview } from './nova-review.js';
 
-export const projects = [novaSite, novaLegal, novaCut, atlas, atlasWebsite, replayGg];
+export const projects = [novaSite, novaLegal, novaReview, novaCut, atlas, atlasWebsite, replayGg];
