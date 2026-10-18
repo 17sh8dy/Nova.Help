@@ -12,7 +12,7 @@
  */
 
 /** Every scope Nova Accounts defines. A product only ever receives what it is registered for. */
-export type NovaScope = 'identity' | 'email' | 'support' | 'sync';
+export type NovaScope = 'identity' | 'email' | 'support' | 'sync' | 'avatar';
 
 /**
  * An account, narrowed to what the token's scopes allow.

@@ -140,6 +140,11 @@ export async function createApp({
 
   const attachments = stores?.attachments ?? createAttachmentStore({ dir: dataDir });
 
+  /* Profile-picture bytes, for GET /api/account/avatar. Only the Cloudflare Worker has them (they
+     live in the R2 bucket the Nova site writes to); under Node there is no reader and the
+     endpoint answers 404, the same as an account with no picture. */
+  const avatars = stores?.avatars ?? null;
+
   /* On Cloudflare there is no filesystem to keep a key in and no process to generate one for,
      so the Worker passes its secret binding straight in. Everywhere else this is unchanged. */
   const { secret, generated } = signingSecret
@@ -251,7 +256,7 @@ export async function createApp({
 
   const config = { dev, trustProxy, secureCookies, origin, deviceApprovalOrigin, cookieDomain };
   const viewer = createViewer({ accounts, access, config });
-  const ctx = { tickets, attachments, store, access, accounts, viewer, limiters, config, logger };
+  const ctx = { tickets, attachments, avatars, store, access, accounts, viewer, limiters, config, logger };
 
   const router = createRouter();
   registerRoutes(router, ctx);

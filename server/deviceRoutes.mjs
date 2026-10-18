@@ -58,7 +58,7 @@
  *
  *    The page routes under /account get none of this and stay same-origin, cookie-only.
  */
-import { bearerToken, DEVICE_POLL_INTERVAL_SECONDS, normalizeUserCode, SYNC_DOCUMENT_LIMIT } from '@nova/accounts';
+import { bearerToken, DEVICE_POLL_INTERVAL_SECONDS, isAvatarKeyFor, normalizeUserCode, SYNC_DOCUMENT_LIMIT } from '@nova/accounts';
 import { parseBody, readBody } from './lib/body.mjs';
 import { clientIp, redirect, sendHtml, sendJson } from './lib/http.mjs';
 import { deviceApprovePage, deviceCodePage, deviceConfirmPage } from './views/pages/device.mjs';
@@ -120,7 +120,7 @@ const tooLarge = (res) =>
   );
 
 export function registerDeviceRoutes(router, ctx) {
-  const { accounts, viewer, limiters, config, logger } = ctx;
+  const { accounts, avatars, viewer, limiters, config, logger } = ctx;
   const ip = (req) => clientIp(req, { trustProxy: config.trustProxy });
 
   const tooMany = (res, retryAfter) =>
@@ -150,7 +150,7 @@ export function registerDeviceRoutes(router, ctx) {
    * `Authorization` header and a JSON content type, and a preflight that 405s means the real
    * request is never sent — which looks to a person like "could not reach Nova Accounts".
    */
-  for (const path of ['/api/device/code', '/api/device/token', '/api/device/sign-out', '/api/account', '/api/sync']) {
+  for (const path of ['/api/device/code', '/api/device/token', '/api/device/sign-out', '/api/account', '/api/account/avatar', '/api/sync']) {
     router.options(path, async (_req, res) => {
       res.writeHead(204, { ...CORS, 'content-length': '0' });
       res.end();
@@ -281,6 +281,51 @@ export function registerDeviceRoutes(router, ctx) {
     const app = await asApp(req);
     if (!app) return oauthError(res, 'invalid_grant', 'Not signed in.');
     return ok(res, { account: app.account, product: app.product, scope: app.scopes.join(' ') });
+  });
+
+  /**
+   * The profile picture of the account this token belongs to — the `avatar` scope, and nothing else.
+   *
+   * THE ACCOUNT COMES FROM THE TOKEN, NEVER THE REQUEST, so there is no id to change and no way to
+   * ask for somebody else's picture. There is also no public URL for a picture: the only way to
+   * get the bytes is to hold a token the person approved, and what the app does with them (Nova.Review
+   * shows them only next to a name the person chose to show) is the app's to answer for.
+   *
+   * The ETag is the random tail of the object key, which changes whenever the picture does, so an app
+   * can ask "has it changed?" with If-None-Match and get a 304 instead of the bytes. A picture that was
+   * removed answers 404, which is how an app learns to stop showing it.
+   *
+   * The response is served inert: `nosniff` and a CSP that forbids everything, so even bytes that were
+   * somehow not an image cannot run as a page.
+   */
+  router.get('/api/account/avatar', async (req, res) => {
+    const app = await asApp(req);
+    if (!app) return oauthError(res, 'invalid_grant', 'Not signed in.');
+    if (!holds(app, 'avatar')) return oauthError(res, 'access_denied', 'This app may not read profile pictures.');
+
+    const reference = avatars ? await accounts.getAvatar(app.accountId) : null;
+    // A key read back from storage is a claim: only serve one that is this account's own.
+    const valid = reference && isAvatarKeyFor(app.accountId, reference.objectKey);
+    const etag = valid ? `"${reference.objectKey.slice(-48)}"` : null;
+    const bytes = valid ? await avatars.read(reference.objectKey) : null;
+    if (!bytes) {
+      return sendJson(res, { error: 'not_found', error_description: 'No profile picture.' }, { status: 404, headers: { 'cache-control': 'no-store', ...CORS } });
+    }
+
+    const headers = {
+      ...CORS,
+      'access-control-expose-headers': 'etag',
+      etag,
+      'cache-control': 'private, no-cache',
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'; sandbox",
+    };
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    res.writeHead(200, { ...headers, 'content-type': reference.contentType, 'content-length': String(bytes.byteLength) });
+    return res.end(bytes);
   });
 
   /**

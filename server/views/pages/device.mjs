@@ -35,6 +35,7 @@ const SCOPE_WORDS = {
   email: 'See the email address on your Nova Account.',
   support: 'File Nova.Help support tickets as you, and follow the ones it filed.',
   sync: 'Read and write the settings this app saves to your account — and nothing another app has saved.',
+  avatar: 'Read your profile picture, so it can appear next to what you post if you choose to show your name.',
 };
 
 const scopeList = (scopes = []) =>

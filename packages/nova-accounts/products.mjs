@@ -41,7 +41,7 @@
  */
 
 /** Every scope that exists. A product may not request one that is not in here. */
-export const SCOPES = Object.freeze(['identity', 'email', 'support', 'sync']);
+export const SCOPES = Object.freeze(['identity', 'email', 'support', 'sync', 'avatar']);
 
 /** Granted to every token, because a token that cannot name its owner is not an identity. */
 export const IMPLIED_SCOPES = Object.freeze(['identity']);
@@ -115,7 +115,7 @@ export const PRODUCTS = Object.freeze({
     id: 'nova-review',
     name: 'Nova.Review',
     kind: 'device',
-    scopes: [],
+    scopes: ['avatar'],
     summary: 'Reviews and suggestions for Nova products.',
   }),
 });

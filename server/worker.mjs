@@ -229,6 +229,14 @@ function build(env) {
       tickets: createD1TicketStore({ db: env.DB }),
       accounts: createD1AccountStore({ db: env.DB }),
       attachments: createR2AttachmentStore({ bucket: env.ATTACHMENTS }),
+      /* The Nova site writes pictures into this same bucket under avatars/<account id>/. Only the
+         device route reads them, and it checks the key belongs to the token's own account first. */
+      avatars: {
+        async read(objectKey) {
+          const object = await env.ATTACHMENTS.get(objectKey);
+          return object ? new Uint8Array(await object.arrayBuffer()) : null;
+        },
+      },
     },
     /* Assets are answered before the router by `fetch` below, so by the time a request gets
        here it is not one. Returning false hands every path to the router. */
