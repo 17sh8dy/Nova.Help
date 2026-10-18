@@ -108,6 +108,16 @@ export const PRODUCTS = Object.freeze({
     scopes: ['support', 'sync'],
     summary: 'The desktop assistant.',
   }),
+
+  // A web page, but on its own origin: it can neither share the Nova cookie nor hold a secret,
+  // so it takes the device grant like Online Earth. Identity only -- no email, ever.
+  'nova-review': define({
+    id: 'nova-review',
+    name: 'Nova.Review',
+    kind: 'device',
+    scopes: [],
+    summary: 'Reviews and suggestions for Nova products.',
+  }),
 });
 
 /** A product by id, or null. Never throws — the id usually came from a request. */
