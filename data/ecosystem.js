@@ -79,7 +79,7 @@ export const products = [
     name: 'Replay.GG',
     blurb: 'Capture the moment you did not know you wanted.',
     support: 'replay-gg',
-    url: null,
+    url: 'https://replay-gg-site.shadylabs.workers.dev/',
   },
 ];
 
