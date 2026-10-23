@@ -58,7 +58,7 @@ export const products = [
     name: 'Nova Cut',
     blurb: 'A video and photo editor that is free, and stays free.',
     support: 'nova-cut',
-    url: null,
+    url: 'https://nova-cut-site.shadylabs.workers.dev/',
   },
   {
     id: 'atlas',
