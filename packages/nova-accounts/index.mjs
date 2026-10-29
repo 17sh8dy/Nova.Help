@@ -49,14 +49,11 @@ import { createProviderRegistry, OAUTH_COOKIE, OAUTH_TTL_SECONDS } from './provi
 import { createProductTokens, deriveProductSecret, PRODUCT_TOKEN_TTL_SECONDS } from './productTokens.mjs';
 import { createDeviceService, scopedView } from './deviceService.mjs';
 import { createSyncService } from './syncDocuments.mjs';
-import { createMfaVault } from './mfa.mjs';
 
 export { SESSION_COOKIE, SESSION_TTL_SECONDS, ACCOUNT_LIMITS, DEFAULT_COST, publicView, normalizeEmail };
 export { RESET_TTL_SECONDS };
 export { createLogMailer, createMemoryMailer, createNullMailer } from './mail.mjs';
 export { OAUTH_COOKIE, OAUTH_TTL_SECONDS };
-export { qrSvg } from './qr.mjs';
-export { MFA_TICKET_TTL_SECONDS, RECOVERY_CODE_COUNT } from './mfa.mjs';
 export { createGoogleProvider } from './providers/google.mjs';
 export { createOidcProvider } from './providers/oidc.mjs';
 
@@ -134,9 +131,6 @@ export async function createAccounts({
 
   const tokens = createSessionTokens({ secret: deriveSessionSecret(secret), ttlSeconds });
   const resetTokens = createResetTokens({ ttlSeconds: resetTtlSeconds });
-  /* Two-step verification's keys, derived from the same application secret - which is why the
-     secret has to match on every front door, exactly as for sessions. */
-  const mfa = createMfaVault({ secret });
   const transport = mailer ?? createNullMailer({ logger });
   const service = createAccountService({
     store,
@@ -144,7 +138,6 @@ export async function createAccounts({
     cost,
     product,
     resetTokens,
-    mfa,
     mailer: transport,
     productName,
     supportUrl,
@@ -177,7 +170,6 @@ export async function createAccounts({
     tokens,
     productTokens,
     resetTokens,
-    mfa,
     mailer: transport,
     providers: registry,
     devices,

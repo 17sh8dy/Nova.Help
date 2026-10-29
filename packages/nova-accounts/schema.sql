@@ -200,13 +200,3 @@ CREATE TABLE IF NOT EXISTS account_avatars (
   size         INTEGER NOT NULL,
   updated_at   TEXT    NOT NULL
 );
-
--- Two-step verification: the whole record as JSON - a SEALED (AES-256-GCM) TOTP secret, hashed
--- recovery codes, and the attempt counters. Added by migrations/0002_account_mfa.sql, which is
--- the same statement for a live database. `version` makes every write a compare-and-swap.
-CREATE TABLE IF NOT EXISTS account_mfa (
-  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-  version    INTEGER NOT NULL DEFAULT 1,
-  data       TEXT    NOT NULL,
-  updated_at TEXT    NOT NULL
-);

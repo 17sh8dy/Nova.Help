@@ -753,36 +753,6 @@ export function createAccountStore({ dir }) {
       return previous;
     },
 
-    /* ── Two-step verification ──────────────────────────────────────────────────────────
-     * Held on the account document as `mfa`: the sealed TOTP secret, hashed recovery codes and
-     * the attempt counters. `publicView` never copies it. The D1 store keeps the same object in
-     * its own table. `updateMfa` is the only writer, and it runs under the account's lock, so a
-     * read-decide-write on the counters cannot interleave with another request. */
-    async getMfa(accountId) {
-      return structuredClone(accounts.get(accountId)?.mfa ?? null);
-    },
-
-    /**
-     * Atomically change the two-step record. `mutate(current | null)` returns the next object,
-     * `null` to remove it, or `undefined` to leave it alone. Returns `{ ok, mfa }`, or
-     * `{ ok: false }` when there is no such account.
-     */
-    async updateMfa(accountId, mutate) {
-      let result = null;
-      const updated = await this.update(accountId, (doc) => {
-        const next = mutate(structuredClone(doc.mfa ?? null));
-        if (next === undefined) {
-          result = doc.mfa ?? null;
-          return doc;
-        }
-        if (next === null) delete doc.mfa;
-        else doc.mfa = next;
-        result = next;
-        return doc;
-      });
-      return updated ? { ok: true, mfa: structuredClone(result) } : { ok: false };
-    },
-
     /**
      * Remove an account and everything held about it: the document, both indexes, and its sync
      * file. `beforeDelete` is accepted for parity with the D1 store and ignored -- this store has

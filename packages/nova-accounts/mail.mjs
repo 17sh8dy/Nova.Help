@@ -160,26 +160,3 @@ export const accountDeletedMessage = ({ to, at, productName = 'Nova', supportUrl
     ...(supportUrl ? ['', `Get help: ${supportUrl}`] : []),
   ].join('\n'),
 });
-
-/** Sent when two-step verification is switched on, off, or its recovery codes are replaced. */
-export const mfaChangedMessage = ({ to, change, at, productName = 'Nova', supportUrl = null }) => {
-  const what = {
-    enabled: 'Two-step verification was turned ON',
-    disabled: 'Two-step verification was turned OFF',
-    recovery: 'The recovery codes for two-step verification were replaced',
-    'recovery-used': 'A recovery code was used to sign in',
-  }[change] ?? 'Two-step verification was changed';
-  return {
-    to,
-    subject: `${what} on your ${productName} Account`,
-    text: [
-      `${what} on the ${productName} Account at ${to} on ${at}.`,
-      '',
-      'If this was you, there is nothing to do.',
-      '',
-      'If it was NOT you, somebody has your password. Change it straight away - that signs',
-      'everything else out - and then review two-step verification on the Security page.',
-      ...(supportUrl ? ['', `Get help: ${supportUrl}`] : []),
-    ].join('\n'),
-  };
-};

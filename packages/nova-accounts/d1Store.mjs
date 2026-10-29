@@ -184,18 +184,6 @@ export function createD1AccountStore({ db, retries = 5 }) {
     db.prepare('SELECT * FROM account_password_resets WHERE account_id = ?').bind(id),
   ];
 
-  /** The two-step row, or null. A database that predates migration 0002 simply has nobody enrolled. */
-  async function readMfa(accountId) {
-    let row;
-    try {
-      row = await db.prepare('SELECT data, version FROM account_mfa WHERE account_id = ?').bind(accountId).first();
-    } catch (error) {
-      if (/no such table/i.test(String(error?.message))) return null;
-      throw error;
-    }
-    return row ? { data: JSON.parse(row.data), version: row.version } : null;
-  }
-
   async function readWithVersion(id) {
     if (!id) return null;
     const [account, sessions, identities, products, resets] = await db.batch(readStatements(id));
@@ -963,59 +951,6 @@ export function createD1AccountStore({ db, retries = 5 }) {
       const previous = await this.getAvatar(accountId);
       if (previous) await db.prepare('DELETE FROM account_avatars WHERE account_id = ?').bind(accountId).run();
       return previous;
-    },
-
-    /* ── Two-step verification ──────────────────────────────────────────────────────────
-     *
-     * One row per account holding the whole record as JSON: the sealed secret, hashed recovery
-     * codes, and the attempt counters. Its own table, like the pictures, so the `accounts` row
-     * Nova.Help reads is untouched. See migrations/0002_account_mfa.sql.
-     *
-     * `version` makes every write a compare-and-swap. Two requests guessing a code at once each
-     * read the same failure count; without it both would write count+1 and a burst of guesses
-     * would be counted once. With it the loser re-reads and the count is true.
-     */
-    async getMfa(accountId) {
-      const found = await readMfa(accountId);
-      return found ? found.data : null;
-    },
-
-    async updateMfa(accountId, mutate) {
-      /* More patience than `update`: this is the guess counter, so a burst of attempts is exactly
-         the traffic it exists for, and a burst must be counted rather than turned into errors. */
-      for (let attempt = 0; attempt < Math.max(retries, 16); attempt += 1) {
-        if (!(await this.has(accountId))) return { ok: false };
-        const found = await readMfa(accountId);
-        const next = mutate(found ? structuredClone(found.data) : null);
-        if (next === undefined) return { ok: true, mfa: found ? found.data : null };
-
-        const now = new Date().toISOString();
-        let changed;
-        if (next === null) {
-          if (!found) return { ok: true, mfa: null };
-          const removed = await db
-            .prepare('DELETE FROM account_mfa WHERE account_id = ? AND version = ?')
-            .bind(accountId, found.version)
-            .run();
-          changed = removed.meta.changes > 0;
-        } else if (!found) {
-          const inserted = await db
-            .prepare(
-              'INSERT INTO account_mfa (account_id, version, data, updated_at) VALUES (?, 1, ?, ?) ON CONFLICT (account_id) DO NOTHING',
-            )
-            .bind(accountId, JSON.stringify(next), now)
-            .run();
-          changed = inserted.meta.changes > 0;
-        } else {
-          const updated = await db
-            .prepare('UPDATE account_mfa SET data = ?, version = version + 1, updated_at = ? WHERE account_id = ? AND version = ?')
-            .bind(JSON.stringify(next), now, accountId, found.version)
-            .run();
-          changed = updated.meta.changes > 0;
-        }
-        if (changed) return { ok: true, mfa: next };
-      }
-      throw new Error(`updateMfa(${accountId}) kept losing the race.`);
     },
 
     /* ── Deleting an account ────────────────────────────────────────────────────────────
