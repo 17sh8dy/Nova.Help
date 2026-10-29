@@ -47,14 +47,22 @@ import {
   validateSignIn,
 } from './validation.mjs';
 import { SESSION_TTL_SECONDS } from './sessions.mjs';
+import { groupedSecret, newTotpSecret, otpauthUri, verifyTotp } from './totp.mjs';
 import {
   accountDeletedMessage,
   emailChangedMessage,
+  mfaChangedMessage,
   passwordChangedMessage,
   passwordResetMessage,
 } from './mail.mjs';
 
 const SCHEMA_VERSION = 1;
+
+/* Two-step verification limits. The counters live on the account, not on the sign-in ticket or the
+   caller's address, so a fresh ticket, a fresh IP or a fresh session resets nothing. */
+const MFA_MAX_FAILURES = 5;
+const MFA_LOCK_MS = 15 * 60 * 1000;
+const MFA_PENDING_TTL_MS = 15 * 60 * 1000;
 
 /** A bound on the session list, so a document cannot grow without limit. Oldest go first. */
 const MAX_SESSIONS = 20;
@@ -95,6 +103,9 @@ export function createAccountService({
      to send mail, and a name to put in it. All three are passed in — the transport especially,
      because which one a deployment has is not this module's business. */
   resetTokens,
+  /* The two-step vault from mfa.mjs: seals secrets, hashes recovery codes, signs sign-in tickets.
+     Required, because a service without it would sign people in past a second factor. */
+  mfa,
   mailer,
   productName = 'Nova',
   supportUrl = null,
@@ -106,6 +117,89 @@ export function createAccountService({
       if (!(await store.has(id))) return id;
     }
     throw new Error('Could not allocate a unique account id.');
+  }
+
+  /** Best-effort notice to the address on the account. A down transport undoes nothing. */
+  async function notifyMfa(account, change, now) {
+    try {
+      await mailer.send(
+        mfaChangedMessage({ to: account.email, change, at: new Date(now).toISOString(), productName, supportUrl }),
+      );
+    } catch (error) {
+      logger.error?.('[nova.accounts] two-step notification failed', error);
+    }
+  }
+
+  /**
+   * Check a code against an enrolled account, counting the miss. ALL the decisions - locked?
+   * replayed? right? - are made inside one atomic update of the record, so two guesses arriving
+   * together cannot both read "four failures" and both be allowed a fifth.
+   *
+   * Returns `{ ok: true, via: 'totp' | 'recovery' }` or `{ ok: false, reason, retryAfter? }`.
+   */
+  async function checkSecondFactor(accountId, code, { now = Date.now() } = {}) {
+    let outcome = { ok: false, reason: 'invalid' };
+    await store.updateMfa(accountId, (current) => {
+      if (!current?.enabledAt) {
+        outcome = { ok: false, reason: 'invalid' };
+        return undefined;
+      }
+      if (current.lockedUntil && current.lockedUntil > now) {
+        outcome = { ok: false, reason: 'locked', retryAfter: Math.ceil((current.lockedUntil - now) / 1000) };
+        return undefined;
+      }
+
+      const next = { ...current };
+      delete next.lockedUntil;
+
+      const secret = mfa.open(accountId, current.sealed);
+      const totp = secret ? verifyTotp(secret, code, { now, notAfter: current.lastStep ?? -1 }) : { ok: false };
+      if (totp.ok) {
+        outcome = { ok: true, via: 'totp' };
+        return { ...next, lastStep: totp.step, failures: 0 };
+      }
+
+      const index = mfa.matchRecovery(current.recovery, code);
+      if (index !== -1) {
+        outcome = { ok: true, via: 'recovery' };
+        return { ...next, recovery: current.recovery.filter((_, i) => i !== index), failures: 0 };
+      }
+
+      const failures = (current.failures ?? 0) + 1;
+      if (failures >= MFA_MAX_FAILURES) {
+        outcome = { ok: false, reason: 'locked', retryAfter: Math.ceil(MFA_LOCK_MS / 1000) };
+        return { ...next, failures: 0, lockedUntil: now + MFA_LOCK_MS };
+      }
+      outcome = { ok: false, reason: 'invalid' };
+      return { ...next, failures };
+    });
+    return outcome;
+  }
+
+  /** Password AND a current code: the proof asked for before weakening two-step. */
+  async function freshSecondFactor(accountId, input, now) {
+    const account = await store.get(accountId);
+    if (!account || account.status !== 'active') return { ok: false, reason: 'no-such-account' };
+    if (typeof account.password !== 'string' || !account.password) return { ok: false, reason: 'no-password' };
+    const status = await store.getMfa(accountId);
+    if (!status?.enabledAt) return { ok: false, reason: 'not-enabled' };
+    if (!(await passwordIsRight(account, input.currentPassword))) return wrongPassword;
+
+    const checked = await checkSecondFactor(accountId, input.code, { now });
+    if (!checked.ok) {
+      return {
+        ok: false,
+        reason: checked.reason === 'locked' ? 'locked' : 'wrong-code',
+        retryAfter: checked.retryAfter,
+        errors: {
+          code:
+            checked.reason === 'locked'
+              ? 'Too many wrong codes. Try again in a few minutes.'
+              : 'That code is not right. Use the current one from your app, or a recovery code.',
+        },
+      };
+    }
+    return { ok: true, account };
   }
 
   /** True only for a real, present password that matches. A missing one is the same as a wrong one. */
@@ -243,6 +337,16 @@ export function createAccountService({
          for, so it stops working. Somebody who requests a reset, remembers their password and
          signs in should not be leaving a live link in their inbox. */
       if (account.passwordReset) await store.clearPasswordReset(account.id).catch(() => {});
+
+      /* A CORRECT PASSWORD IS NOT ENOUGH WHEN TWO-STEP VERIFICATION IS ON, and this is the one
+         place that is decided. `signIn` never returns `ok: true` for such an account - it hands
+         back a short-lived ticket instead - so a caller written before two-step existed, which
+         opens a session on `ok`, fails closed (it shows "that did not sign you in") rather than
+         signing the person in without the code. `completeMfaSignIn` is the only way through. */
+      const enrolled = await store.getMfa(account.id);
+      if (enrolled?.enabledAt) {
+        return { ok: false, reason: 'mfa-required', ticket: mfa.issueTicket(account.id), values };
+      }
 
       return { ok: true, account: publicView(account) };
     },
@@ -446,6 +550,14 @@ export function createAccountService({
           doc.updatedAt = new Date().toISOString();
           return doc;
         });
+
+        /* TWO-STEP PROTECTS THE ACCOUNT, NOT ONE WAY IN. Google proving who somebody is does not
+           mean they passed Nova's second factor, and a person who turned it on expects it to
+           cover every sign-in method. So an enrolled account gets a ticket here, exactly as
+           `signIn` gives one, and `completeMfaSignIn` is again the only way through. */
+        if ((await store.getMfa(existing.id))?.enabledAt) {
+          return { ok: false, reason: 'mfa-required', ticket: mfa.issueTicket(existing.id) };
+        }
 
         return { ok: true, outcome: 'signed-in', account: publicView(updated ?? existing) };
       }
@@ -836,6 +948,175 @@ export function createAccountService({
         logger.error?.('[nova.accounts] account deleted notification failed', error);
       }
       return { ok: true, avatar };
+    },
+
+    /* ── Two-step verification ──────────────────────────────────────────────────────────────
+     *
+     * An authenticator app (TOTP) plus ten recovery codes. The rules that make it worth having:
+     *
+     *   - IT IS NOT ON UNTIL A CODE HAS BEEN PROVEN. Starting setup only stores a PENDING
+     *     secret; `confirmMfaEnrollment` switches it on when the first code from the person's
+     *     app is right. Switching it on at the QR code would lock out anybody whose app
+     *     scanned wrongly.
+     *   - THE SECOND STEP CANNOT BE SKIPPED. `signIn` returns a ticket instead of success for an
+     *     enrolled account; only `completeMfaSignIn` turns that into one.
+     *   - GUESSING IS COUNTED ON THE ACCOUNT. Five wrong codes lock the second step for fifteen
+     *     minutes, however many tickets, sessions or addresses they came from.
+     *   - A CODE WORKS ONCE. The step of the last accepted code is kept and anything at or before
+     *     it is refused, so a code that was seen cannot be replayed inside its window.
+     *   - TURNING IT OFF, OR REPLACING THE RECOVERY CODES, ASKS AGAIN: the password AND a current
+     *     code. A stolen session cookie must not be able to remove the protection.
+     *   - EVERY CHANGE IS MAILED to the address on the account.
+     */
+
+    /** Whether two-step is on, and how many recovery codes are left. Never the secret or the hashes. */
+    async mfaStatus(accountId, { now = Date.now() } = {}) {
+      const record = await store.getMfa(accountId);
+      const pending = record?.pending && now - new Date(record.pending.createdAt).getTime() < MFA_PENDING_TTL_MS;
+      return {
+        enabled: Boolean(record?.enabledAt),
+        enabledAt: record?.enabledAt ?? null,
+        recoveryRemaining: record?.enabledAt ? (record.recovery ?? []).length : 0,
+        pending: Boolean(pending),
+        lockedUntil: record?.lockedUntil && record.lockedUntil > now ? record.lockedUntil : null,
+      };
+    },
+
+    /**
+     * Begin setup: make a secret and keep it PENDING. Needs the current password. Returns nothing
+     * secret - the page asks `pendingMfaSetup` for what to draw.
+     */
+    async beginMfaEnrollment(accountId, input = {}, { now = Date.now() } = {}) {
+      const account = await store.get(accountId);
+      if (!account || account.status !== 'active') return { ok: false, reason: 'no-such-account' };
+      if (typeof account.password !== 'string' || !account.password) return { ok: false, reason: 'no-password' };
+      if (!(await passwordIsRight(account, input.currentPassword))) return wrongPassword;
+
+      const sealed = mfa.seal(accountId, newTotpSecret());
+      let already = false;
+      const saved = await store.updateMfa(accountId, (current) => {
+        if (current?.enabledAt) {
+          already = true;
+          return undefined;
+        }
+        return { pending: { sealed, createdAt: new Date(now).toISOString(), failures: 0 } };
+      });
+      if (!saved.ok) return { ok: false, reason: 'no-such-account' };
+      return already ? { ok: false, reason: 'already-enabled' } : { ok: true };
+    },
+
+    /** What to show during setup: the `otpauth://` URI for the QR code and the secret for typing. */
+    async pendingMfaSetup(accountId, { now = Date.now() } = {}) {
+      const account = await store.get(accountId);
+      const record = await store.getMfa(accountId);
+      if (!account || !record?.pending || record.enabledAt) return null;
+      if (now - new Date(record.pending.createdAt).getTime() >= MFA_PENDING_TTL_MS) return null;
+      const secret = mfa.open(accountId, record.pending.sealed);
+      if (!secret) return null;
+      return {
+        uri: otpauthUri({ secret, account: account.email, issuer: productName }),
+        secret: groupedSecret(secret),
+      };
+    },
+
+    /** Abandon setup. Harmless if there is nothing pending; never touches an enabled record. */
+    async cancelMfaEnrollment(accountId) {
+      await store.updateMfa(accountId, (current) => (current?.enabledAt || !current ? undefined : null));
+      return { ok: true };
+    },
+
+    /**
+     * Finish setup with the first code from the person's app. Switches two-step ON and returns
+     * the recovery codes - the ONLY time they exist in the clear.
+     */
+    async confirmMfaEnrollment(accountId, code, { now = Date.now() } = {}) {
+      const account = await store.get(accountId);
+      if (!account || account.status !== 'active') return { ok: false, reason: 'no-such-account' };
+
+      const recoveryCodes = mfa.newRecoveryCodes();
+      let outcome = 'no-setup';
+      await store.updateMfa(accountId, (current) => {
+        if (!current?.pending || current.enabledAt) return undefined;
+        if (now - new Date(current.pending.createdAt).getTime() >= MFA_PENDING_TTL_MS) {
+          outcome = 'no-setup';
+          return null;
+        }
+        const secret = mfa.open(accountId, current.pending.sealed);
+        const checked = secret ? verifyTotp(secret, code, { now }) : { ok: false };
+        if (!checked.ok) {
+          const failures = (current.pending.failures ?? 0) + 1;
+          if (failures >= MFA_MAX_FAILURES) {
+            /* Too many wrong guesses at an unproven secret: throw it away and make them start
+               again, rather than leaving a pending record to be ground down. */
+            outcome = 'start-over';
+            return null;
+          }
+          outcome = 'wrong-code';
+          return { ...current, pending: { ...current.pending, failures } };
+        }
+        outcome = 'ok';
+        return {
+          enabledAt: new Date(now).toISOString(),
+          sealed: current.pending.sealed,
+          lastStep: checked.step,
+          recovery: recoveryCodes.map((c) => mfa.hashRecovery(c)),
+          failures: 0,
+        };
+      });
+
+      if (outcome !== 'ok') {
+        return {
+          ok: false,
+          reason: outcome,
+          errors: {
+            code:
+              outcome === 'wrong-code'
+                ? 'That code is not right. Check the app and try the new one.'
+                : 'Start again from the beginning.',
+          },
+        };
+      }
+      await notifyMfa(account, 'enabled', now);
+      return { ok: true, recoveryCodes };
+    },
+
+    /**
+     * The second half of signing in. `ticket` is what `signIn` returned; `code` is six digits from
+     * the app or a recovery code. Returns `{ ok: true, account, via }` or a failure that says only
+     * what a person with the password may be told: wrong code, locked, or the ticket lapsed.
+     */
+    async completeMfaSignIn({ ticket, code } = {}, { now = Date.now() } = {}) {
+      const accountId = mfa.readTicket(ticket, { now });
+      if (!accountId) return { ok: false, reason: 'expired' };
+
+      const account = await store.get(accountId);
+      if (!account || account.status !== 'active') return { ok: false, reason: 'expired' };
+
+      const checked = await checkSecondFactor(accountId, code, { now });
+      if (!checked.ok) return checked;
+      if (checked.via === 'recovery') await notifyMfa(account, 'recovery-used', now);
+      return { ok: true, account: publicView(account), via: checked.via };
+    },
+
+    /** Turn two-step off. Needs the password AND a current code (or a recovery code). */
+    async disableMfa(accountId, input = {}, { now = Date.now() } = {}) {
+      const gate = await freshSecondFactor(accountId, input, now);
+      if (!gate.ok) return gate;
+      await store.updateMfa(accountId, () => null);
+      await notifyMfa(gate.account, 'disabled', now);
+      return { ok: true };
+    },
+
+    /** Replace the recovery codes. Same two proofs as turning it off. Returns the new codes once. */
+    async regenerateRecoveryCodes(accountId, input = {}, { now = Date.now() } = {}) {
+      const gate = await freshSecondFactor(accountId, input, now);
+      if (!gate.ok) return gate;
+      const recoveryCodes = mfa.newRecoveryCodes();
+      await store.updateMfa(accountId, (current) =>
+        current?.enabledAt ? { ...current, recovery: recoveryCodes.map((c) => mfa.hashRecovery(c)) } : undefined,
+      );
+      await notifyMfa(gate.account, 'recovery', now);
+      return { ok: true, recoveryCodes };
     },
 
     /** The reference to the picture, or null. */

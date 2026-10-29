@@ -31,7 +31,7 @@ import { summarize } from './core/tickets.mjs';
 import { parseBody } from './lib/body.mjs';
 import { clearCookie, clientIp, cookie, parseCookies, redirect, sendHtml, withCookie } from './lib/http.mjs';
 import { safeNext } from './lib/viewer.mjs';
-import { accountPage, createAccountPage, signInPage } from './views/pages/account.mjs';
+import { accountPage, createAccountPage, secondStepPage, signInPage } from './views/pages/account.mjs';
 import { forgotPasswordPage, resetPasswordPage, resetRequestedPage } from './views/pages/passwordReset.mjs';
 import { tooManyPage } from './views/pages/status.mjs';
 
@@ -108,6 +108,12 @@ export function registerAccountRoutes(router, ctx) {
 
     const attempt = await accounts.signIn(body.fields ?? {});
 
+    /* The password was right and the account has two-step on: no session yet, and the counters
+       are not cleared until the code is accepted. */
+    if (!attempt.ok && attempt.reason === 'mfa-required') {
+      return sendHtml(res, secondStepPage({ ticket: attempt.ticket, next }));
+    }
+
     if (!attempt.ok) {
       /* A missing field gets its own per-field message because that is a typo, not an attack.
          Everything else gets the one generic failure. */
@@ -124,6 +130,34 @@ export function registerAccountRoutes(router, ctx) {
     await limiters.signInEmail.clear(`email:${email}`);
 
     return openSession(res, attempt.account.id, next, { banner: 'signed-in' });
+  });
+
+  /* ── Sign in, second step ────────────────────────────────────────────────────────────── */
+
+  router.get('/account/sign-in/verify', async (req, res) => redirect(res, '/account/sign-in'));
+
+  router.post('/account/sign-in/verify', async (req, res) => {
+    const body = await parseBody(req, { limit: BODY_LIMIT });
+    const next = safeNext(body.fields?.next);
+
+    const gate = await limiters.signIn.hit(ip(req) ?? 'unknown');
+    if (!gate.ok) return tooMany(res, gate.retryAfter);
+
+    const ticket = String(body.fields?.ticket ?? '');
+    const done = await accounts.completeMfaSignIn({ ticket, code: String(body.fields?.code ?? '') });
+
+    if (!done.ok) {
+      if (done.reason === 'expired') return sendHtml(res, secondStepPage({ expired: true, next }), { status: 401 });
+      const locked = done.reason === 'locked';
+      return sendHtml(
+        res,
+        secondStepPage({ ticket, next, locked, error: locked ? '' : 'That code is not right. Check the app, or use a recovery code.' }),
+        locked ? { status: 429, headers: { 'retry-after': String(done.retryAfter ?? 900) } } : { status: 401 },
+      );
+    }
+
+    await limiters.signIn.clear(ip(req) ?? 'unknown');
+    return openSession(res, done.account.id, next, { banner: 'signed-in' });
   });
 
   /* ── Create an account ───────────────────────────────────────────────────────────────── */
@@ -305,6 +339,12 @@ export function registerAccountRoutes(router, ctx) {
       });
     }
 
+    /* A reset link proves access to the MAILBOX, not to the authenticator. With two-step on, the
+       password changes and everything is signed out, but nobody is signed IN: the next sign-in
+       asks for the code like any other. Opening a session here would let an email takeover walk
+       straight past the second factor. */
+    if ((await accounts.mfaStatus(result.account.id)).enabled) return redirect(res, '/account/sign-in?oauth=reset-done');
+
     /* Every session ended when the password changed — including this browser's, if it had one.
        Opening a fresh one leaves the person who just proved they own the address signed in and
        everybody else out, which is the intent of both halves. */
@@ -322,7 +362,7 @@ export function registerAccountRoutes(router, ctx) {
    */
   function signInNotice(req) {
     const code = new URL(req.url, 'http://local').searchParams.get('oauth');
-    return ['failed', 'email-has-account', 'unverified', 'identity-taken', 'cancelled'].includes(code)
+    return ['failed', 'email-has-account', 'unverified', 'identity-taken', 'cancelled', 'reset-done'].includes(code)
       ? code
       : null;
   }
@@ -423,6 +463,13 @@ export function registerAccountRoutes(router, ctx) {
     const result = await accounts.withProviderIdentity(identity, {
       currentAccountId: flow.mode === 'link' ? account.id : null,
     });
+
+    /* Google vouched for the person, but the account has two-step on: ask for the code. */
+    if (!result.ok && result.reason === 'mfa-required') {
+      return sendHtml(res, secondStepPage({ ticket: result.ticket, next: flow.next && flow.next !== '/account' ? flow.next : '' }), {
+        headers: spent,
+      });
+    }
 
     if (!result.ok) {
       logger.warn?.(`[nova.help] ${providerId} sign-in refused: ${result.reason}`);

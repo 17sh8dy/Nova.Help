@@ -129,6 +129,13 @@ function oauthNotice(kind) {
   if (kind === 'cancelled') {
     return notice('info', 'Sign-in cancelled', '<p>Nothing happened. You can try again, or use a password below.</p>');
   }
+  if (kind === 'reset-done') {
+    return notice(
+      'success',
+      'Your password has been changed',
+      '<p>Sign in with the new one. Everything else was signed out, on Nova.Help and on every Nova product.</p>',
+    );
+  }
   if (kind === 'failed') {
     return notice(
       'error',
@@ -230,6 +237,53 @@ export function signInPage({ values = {}, errors = {}, failed = false, rateLimit
         ? 'Sign in, and you will land back on the code the app is showing.'
         : 'Signing in is optional. It keeps your tickets together and saves typing your address every time.',
     }),
+    main,
+  });
+}
+
+/**
+ * The second step of signing in, for an account with two-step verification on.
+ *
+ * The ticket proves the password was right a moment ago and nothing more: it is signed, lapses in
+ * five minutes, and is useless without the code. Wrong codes are counted on the ACCOUNT by the
+ * shared package, so asking for a fresh ticket does not buy more guesses.
+ */
+export function secondStepPage({ ticket = '', next = '', error = '', locked = false, expired = false } = {}) {
+  const main = `<section class="section">
+    <div class="wrap narrow">
+      ${
+        expired
+          ? `${notice('error', 'That took too long', '<p>The sign-in expired before a code was entered. Start again — it only takes a moment.</p>')}
+      <div class="card"><div class="form__actions"><a class="btn btn--primary" href="/account/sign-in${nextQuery(next)}">Start again</a></div></div>`
+          : `<form class="card form" method="post" action="/account/sign-in/verify" novalidate>
+        <h2 class="card__title">${icon('user', { size: 20 })} Two-step verification</h2>
+        <p class="card__lede">Open your authenticator app and enter the 6-digit code it shows for Nova.</p>
+        <input type="hidden" name="ticket" value="${esc(ticket)}" />
+        ${nextField(next)}
+        ${textField({
+          id: 'code',
+          label: 'Authentication code',
+          hint: 'Lost your phone? Type one of your recovery codes instead.',
+          error: locked ? 'Too many wrong codes. This is paused for a few minutes for your safety.' : error,
+          required: true,
+          maxLength: 24,
+          autocomplete: 'one-time-code',
+        })}
+        <div class="form__actions">
+          ${button('Verify', { type: 'submit', variant: 'primary', iconName: 'arrow' })}
+          <a class="btn btn--ghost" href="/account/sign-in">Cancel</a>
+        </div>
+      </form>`
+      }
+    </div>
+  </section>`;
+
+  return page({
+    title: 'Two-step verification',
+    description: 'Finish signing in to your Nova Account.',
+    path: '/account/sign-in',
+    noindex: true,
+    hero: hero({ eyebrow: 'Nova Account', title: 'One more step', lede: 'Your account is protected by an authenticator app.' }),
     main,
   });
 }
